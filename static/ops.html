@@ -55,7 +55,7 @@
 <div class="section-header">
   <h3>Cut / Break Suggestions</h3>
 </div>
-<p class="hint">A suggestion, not an order - factors labor-vs-goal, LifeLenz's hours-vs-ideal, skill coverage, remaining shift time, minor-break status, and recent same-hour sales history. Never suggests the floor manager, and never suggests cutting below 3 people on the clock.</p>
+<p class="hint">A suggestion, not an order - factors labor-vs-goal, LifeLenz's hours-vs-ideal, skill coverage, minor-break status, and recent same-hour sales history. Ranked narrowest trained skillset first, remaining shift time only breaks ties. Never suggests the floor manager, and never suggests cutting below 3 people on the clock.</p>
 <div id="cutSuggestions" class="glance-panel"></div>
 
 <hr class="section-divider" />
@@ -511,7 +511,15 @@ function renderCutSuggestions(effective) {
     });
   }
 
-  candidates.sort((a, b) => b.remainingHours - a.remainingHours || a.trainedRoleCount - b.trainedRoleCount);
+  // Narrowest skillset first, not biggest labor-hour savings first - someone with 21
+  // trained tags shouldn't get suggested ahead of someone with 4 just because they have
+  // more hours left on their shift. Remaining hours only breaks ties between people with
+  // the same tag count. Unknown tag counts (synthetic call-in/cover entries with no roster
+  // match) sort last rather than being treated as 0 - not knowing isn't the same as narrow.
+  candidates.sort(
+    (a, b) =>
+      (a.trainedRoleCount ?? Infinity) - (b.trainedRoleCount ?? Infinity) || b.remainingHours - a.remainingHours,
+  );
 
   // Never suggest cutting below the floor, even if labor is well over target.
   const maxCuts = Math.max(0, stillOnShift.length - MIN_STAFF_FLOOR);
@@ -525,7 +533,7 @@ function renderCutSuggestions(effective) {
 
   if (top.length) {
     rows.push(
-      `<div class="glance-row skill-gap"><span class="icon">✂️</span><span>Labor is running ${nightGoal != null ? `above the ${nightGoal}% goal` : "above LifeLenz's ideal hours"} (${laborPctNow.toFixed(1)}% now, ${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}hrs vs ideal), ${stillOnShift.length} still on the clock. Suggested cuts, ranked by biggest labor-hour savings:</span></div>`,
+      `<div class="glance-row skill-gap"><span class="icon">✂️</span><span>Labor is running ${nightGoal != null ? `above the ${nightGoal}% goal` : "above LifeLenz's ideal hours"} (${laborPctNow.toFixed(1)}% now, ${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}hrs vs ideal), ${stillOnShift.length} still on the clock. Suggested cuts, narrowest skillset first (ties broken by remaining hours):</span></div>`,
     );
     if (rushAhead) {
       rows.push(
