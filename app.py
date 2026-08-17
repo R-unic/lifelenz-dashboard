@@ -188,6 +188,7 @@ TEAM_NOTE_FIELD_LABELS = {
     "caution": "caution flag",
     "cautionNote": "caution note",
     "notes": "notes",
+    "isMinor": "minor status",
 }
 
 
@@ -225,6 +226,7 @@ def api_team_notes_upsert():
         "caution": bool(payload.get("caution", False)),
         "cautionNote": payload.get("cautionNote", ""),
         "notes": payload.get("notes", ""),
+        "isMinor": bool(payload.get("isMinor", False)),
         "updatedAt": datetime.now(timezone.utc).isoformat(),
         "updatedBy": editor,
     }

@@ -154,6 +154,8 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 .glance-row.dislike { color: var(--bad); }
 .glance-row.caution { color: var(--accent-3); }
 .glance-row.skill-gap { color: var(--accent-2); }
+.glance-row.minor { color: var(--accent-3); }
+.glance-row.competitive { color: var(--good); }
 .glance-row.all-clear { color: var(--good); }
 .glance-chip {
   display: inline-block;
@@ -204,6 +206,17 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 .team-note-card.editing .tn-checkbox-label { flex-direction: row; align-items: center; gap: 6px; }
 .tn-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
 .tn-name { font-weight: 600; font-size: 0.95rem; }
+.tn-minor-badge {
+  display: inline-block;
+  background: var(--accent-3);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+}
 .tn-field { margin-top: 4px; line-height: 1.4; }
 .tn-field.tn-caution { color: var(--bad); font-weight: 600; }
 .tn-actions { margin-top: 10px; display: flex; gap: 8px; }

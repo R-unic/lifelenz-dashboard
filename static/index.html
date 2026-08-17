@@ -288,12 +288,11 @@
         return null;
       }
 
-      function renderShiftCards(darData, cfg) {
+      function renderShiftCards(summary, cfg) {
         const el = document.getElementById("shiftCards");
         el.innerHTML = "";
         if (!cfg) return;
 
-        const summary = computeShiftSummary(darData, cfg);
         for (const { key, name } of SHIFT_DEFS) {
           const s = summary[key];
           const goal = cfg.goals[key];
@@ -491,12 +490,14 @@
         const disliked = [];
         const cautions = [];
         const skillGaps = [];
+        const minors = [];
 
         for (const s of nightPeople) {
           const note = teamNoteFor(s.name);
           if (note?.rapport === "dislike") disliked.push(s);
           if (note?.caution)
             cautions.push({ shift: s, reason: note.cautionNote });
+          if (note?.isMinor) minors.push(s);
         }
         for (const s of nightPeople) {
           if (
@@ -531,6 +532,41 @@
             `<div class="glance-row skill-gap"><span class="icon">🎯</span><span>Narrow skillset today: ${skillGaps.map((g) => `<span class="glance-chip">${escapeHtml(g.shift.name)} <span class="glance-chip-time">(${shiftSuffix(g.shift)})</span> - ${g.count} tags</span>`).join("")}</span></div>`,
           );
         }
+        if (minors.length) {
+          rows.push(
+            `<div class="glance-row minor"><span class="icon">🧒</span><span>Minors on shift today - make sure they get their legally required break: ${minors.map((s) => `<span class="glance-chip">${escapeHtml(s.name)} <span class="glance-chip-time">(${shiftSuffix(s)})</span></span>`).join("")}</span></div>`,
+          );
+        }
+        // Bragging rights only - lower labor % of sales is better, so this only fires when
+        // night is actually beating a daypart, never the other way around (nobody asked for
+        // a guilt trip when mornings are winning).
+        if (currentShiftSummary) {
+          const night = currentShiftSummary.night;
+          const wins = [];
+          if (night.sales > 0 || night.hours > 0) {
+            if (
+              currentShiftSummary.morning.sales > 0 &&
+              night.laborPct < currentShiftSummary.morning.laborPct
+            ) {
+              wins.push(
+                `Mornings by ${(currentShiftSummary.morning.laborPct - night.laborPct).toFixed(1)} pts`,
+              );
+            }
+            if (
+              currentShiftSummary.mid.sales > 0 &&
+              night.laborPct < currentShiftSummary.mid.laborPct
+            ) {
+              wins.push(
+                `Mid by ${(currentShiftSummary.mid.laborPct - night.laborPct).toFixed(1)} pts`,
+              );
+            }
+          }
+          if (wins.length) {
+            rows.push(
+              `<div class="glance-row competitive"><span class="icon">🏆</span><span>Beating ${wins.join(" and ")} on labor % today</span></div>`,
+            );
+          }
+        }
         if (!rows.length) {
           rows.push(
             `<div class="glance-row all-clear"><span class="icon">✅</span><span>No flags for today's crew</span></div>`,
@@ -544,6 +580,7 @@
       let currentHours = [];
       let currentRoster = [];
       let currentRosterDate = null;
+      let currentShiftSummary = null;
 
       async function loadData(dateStr) {
         const statusEl = document.getElementById("status");
@@ -655,7 +692,9 @@
         }
 
         renderInsightCards(computeInsights(darData));
-        renderShiftCards(darData, shiftConfig);
+        currentShiftSummary = shiftConfig ? computeShiftSummary(darData, shiftConfig) : null;
+        renderShiftCards(currentShiftSummary, shiftConfig);
+        renderGlancePanel();
 
         const hours = darData.dar.map((h) => localHourLabel(h.startTime));
         const salesSeries = darData.dar.map((h) =>
@@ -932,7 +971,7 @@
           : "";
         div.innerHTML = `
     <div class="tn-header">
-      <span class="tn-name">${escapeHtml(p.name)}</span>
+      <span class="tn-name">${escapeHtml(p.name)}${p.isMinor ? ' <span class="tn-minor-badge">MINOR</span>' : ""}</span>
       <span class="tn-rapport">${rapportLabel(p.rapport)}</span>
     </div>
     ${p.strengths ? `<div class="tn-field"><strong>Strengths:</strong> ${escapeHtml(p.strengths)}</div>` : ""}
@@ -974,6 +1013,7 @@
         div.className = "team-note-card editing";
         div.innerHTML = `
     <label>Name <input type="text" class="tn-input-name" value="${p ? escapeHtml(p.name) : ""}" ${p ? "readonly" : ""} placeholder="Full name"></label>
+    <label class="tn-checkbox-label"><input type="checkbox" class="tn-input-minor" ${p && p.isMinor ? "checked" : ""}> Minor (needs legally required break)</label>
     <label>Rapport
       <select class="tn-input-rapport">
         ${RAPPORT_OPTIONS.map(([val, label]) => `<option value="${val}" ${p && p.rapport === val ? "selected" : ""}>${label}</option>`).join("")}
@@ -1009,6 +1049,7 @@
               .querySelector(".tn-input-cautionnote")
               .value.trim(),
             notes: div.querySelector(".tn-input-notes").value.trim(),
+            isMinor: div.querySelector(".tn-input-minor").checked,
             editorName: document.getElementById("editorNameInput").value.trim(),
           };
           await fetch("/api/team-notes", {
