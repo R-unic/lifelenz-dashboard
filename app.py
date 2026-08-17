@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -96,6 +97,68 @@ def api_shift_config():
         "manualManagers": _name_list("LIFELENZ_MANUAL_MANAGERS"),
         "skillGapExempt": _name_list("LIFELENZ_SKILL_GAP_EXEMPT"),
     })
+
+
+# Auto-fills "Editing as" from whoever's actually connected, so managers on their own
+# Tailscale-joined devices don't have to type their name every time. `tailscale whois`
+# resolves a connecting IP to a tailnet identity - since Tailscale traffic is
+# WireGuard-authenticated, the peer IP Flask sees can't be spoofed the way a typed name
+# field could, so this is a stronger signal than it looks. Only works for people actually
+# connecting over Tailscale (not plain LAN wifi); those users just fall back to typing
+# their name like before.
+_TAILSCALE_BIN_CANDIDATES = [
+    os.environ.get("TAILSCALE_BIN"),
+    "tailscale",
+    r"C:\Program Files\Tailscale\tailscale.exe",
+    "/usr/bin/tailscale",
+    "/usr/local/bin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+]
+_tailscale_bin_cache: dict = {"checked": False, "path": None}
+
+
+def _resolve_tailscale_bin() -> str | None:
+    if _tailscale_bin_cache["checked"]:
+        return _tailscale_bin_cache["path"]
+    _tailscale_bin_cache["checked"] = True
+    for candidate in _TAILSCALE_BIN_CANDIDATES:
+        if not candidate:
+            continue
+        try:
+            subprocess.run([candidate, "version"], capture_output=True, timeout=3)
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            continue
+        _tailscale_bin_cache["path"] = candidate
+        break
+    return _tailscale_bin_cache["path"]
+
+
+def _tailscale_whois(ip: str) -> dict | None:
+    if ip in ("127.0.0.1", "::1"):
+        return None
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
+        return None
+    try:
+        result = subprocess.run(
+            [tailscale_bin, "whois", "--json", ip], capture_output=True, text=True, timeout=3
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    display_name = (data.get("UserProfile") or {}).get("DisplayName")
+    return {"name": display_name} if display_name else None
+
+
+@app.route("/api/whoami")
+def api_whoami():
+    identity = _tailscale_whois(request.remote_addr) if request.remote_addr else None
+    return jsonify({"name": identity["name"] if identity else None})
 
 
 @app.route("/api/dar")

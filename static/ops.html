@@ -57,7 +57,10 @@
 
 <div class="section-header">
   <h3>Day-by-Day Log</h3>
-  <input type="text" id="editorNameInput" placeholder="Editing as..." class="editor-name-input" />
+  <span class="editor-name-wrap">
+    <input type="text" id="editorNameInput" placeholder="Editing as..." class="editor-name-input" />
+    <span id="editorNameHint" class="editor-name-hint" title="Auto-detected from your Tailscale identity - edit if this isn't you">via Tailscale</span>
+  </span>
 </div>
 <p class="hint">Log staffing changes as they happen (added/covered/cut/breaks) - not a recalculation of LifeLenz's own numbers, just a record of why the day went the way it did. Newest first.</p>
 <div id="shiftEventsError"></div>
@@ -446,10 +449,7 @@ async function loadDay(dateStr) {
 }
 
 const editorNameInput = document.getElementById("editorNameInput");
-editorNameInput.value = localStorage.getItem("lifelenzEditorName") || "";
-editorNameInput.addEventListener("change", () => {
-  localStorage.setItem("lifelenzEditorName", editorNameInput.value.trim());
-});
+wireEditorNameInput(editorNameInput, document.getElementById("editorNameHint"));
 
 document.getElementById("dayLogForm").addEventListener("submit", async (e) => {
   e.preventDefault();

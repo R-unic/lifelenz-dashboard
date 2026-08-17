@@ -357,6 +357,18 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 .modal dd { margin: 0; font-weight: 600; text-align: right; }
 
 .section-header-controls { display: flex; align-items: center; gap: 8px; }
+.editor-name-wrap { display: inline-flex; align-items: center; gap: 5px; }
+.editor-name-hint {
+  display: none;
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 15%, transparent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 
 /* Mobile: phones and small tablets in portrait. The header was the worst offender -
    h1 and the nav fought for space in one row and the title wrapped into a tall,
@@ -373,6 +385,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 
   .section-header { flex-wrap: wrap; gap: 8px; }
   .section-header-controls { width: 100%; }
+  .editor-name-wrap { flex: 1; min-width: 0; }
   .editor-name-input { flex: 1; min-width: 0; width: auto; }
 
   .cards { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; }
