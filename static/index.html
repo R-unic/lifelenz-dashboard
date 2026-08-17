@@ -1,1065 +1,551 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Fruitport McDonald's - Night Crew Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/style.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-  </head>
-  <body>
-    <div class="page">
-      <header>
-        <div class="header-left">
-          <h1>Fruitport McDonald's - Night Crew Dashboard</h1>
-          <nav class="page-nav">
-            <a href="/" class="active">Dashboard</a>
-            <a href="/trends">Trends</a>
-          </nav>
-        </div>
-        <div class="controls">
-          <span id="status"></span>
-          <input type="date" id="datePicker" />
-          <button id="refreshBtn">Refresh</button>
-        </div>
-      </header>
+<head>
+<meta charset="utf-8" />
+<title>Fruitport McDonald's - Night Crew Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
 
-      <div id="error"></div>
+<div class="page">
 
-      <div id="glancePanel" class="glance-panel"></div>
+<header>
+  <div class="header-left">
+    <h1>Fruitport McDonald's - Night Crew Dashboard</h1>
+    <nav class="page-nav">
+      <a href="/" class="active">Dashboard</a>
+      <a href="/trends">Trends</a>
+      <a href="/ops">Night Ops</a>
+    </nav>
+  </div>
+  <div class="controls">
+    <span id="status"></span>
+    <input type="date" id="datePicker" />
+    <button id="refreshBtn">Refresh</button>
+  </div>
+</header>
 
-      <div class="cards" id="cards"></div>
-      <div class="cards insights" id="insightCards"></div>
+<div id="error"></div>
 
-      <h3>Shift Labor</h3>
-      <div class="cards shifts" id="shiftCards"></div>
+<div id="glancePanel" class="glance-panel"></div>
 
-      <div class="section-header">
-        <h3>Cut Suggestions</h3>
-      </div>
-      <p class="hint">
-        A suggestion, not an order - based on LifeLenz's own hours-vs-ideal and
-        labor-goal signals, current skill coverage, remaining shift time, and
-        minor-break status. Never suggests the floor manager.
-      </p>
-      <div id="cutSuggestions" class="glance-panel"></div>
+<div class="cards" id="cards"></div>
+<div class="cards insights" id="insightCards"></div>
 
-      <div class="section-header">
-        <h3>Today's Roster</h3>
-      </div>
-      <p class="hint">
-        Floor manager is a best guess from shift start/end times, not a field
-        LifeLenz labels directly - night matches are reliable (3:30pm-11:30pm is
-        fixed); morning is the loosest guess.
-      </p>
-      <div id="rosterError"></div>
+<h3>Shift Labor</h3>
+<div class="cards shifts" id="shiftCards"></div>
 
-      <div class="cards shifts" id="rosterCards"></div>
+<div class="section-header">
+  <h3>Today's Roster</h3>
+</div>
+<p class="hint">Floor manager is a best guess from shift start/end times, not a field LifeLenz labels directly - night matches are reliable (3:30pm-11:30pm is fixed); morning is the loosest guess.</p>
+<div id="rosterError"></div>
 
-      <div class="section-header">
-        <h3>Day-by-Day Log</h3>
-      </div>
-      <p class="hint">
-        Log staffing changes as they happen (added/subbed/cut/breaks) - not a
-        recalculation of LifeLenz's own numbers, just a record of why the day
-        went the way it did.
-      </p>
-      <div id="shiftEventsError"></div>
-      <datalist id="rosterNamesList"></datalist>
-      <div class="chart-wrap">
-        <div class="day-log-form">
-          <input type="text" id="eventNameInput" placeholder="Name" list="rosterNamesList" />
-          <select id="eventTypeInput">
-            <option value="added">Added</option>
-            <option value="subbed">Subbed</option>
-            <option value="cut">Cut</option>
-            <option value="break_start">Break Start</option>
-            <option value="break_end">Break End</option>
-          </select>
-          <input type="time" id="eventTimeInput" />
-          <input type="text" id="eventNoteInput" placeholder="Note (optional)" />
-          <button id="logEventBtn">Log</button>
-        </div>
-        <ul class="day-log-list" id="dayLogList"></ul>
-      </div>
+<div class="cards shifts" id="rosterCards"></div>
 
-      <div class="chart-wrap">
-        <canvas id="hourlyChart" height="90"></canvas>
-      </div>
-      <p class="hint">
-        Click a bar or a table row to see the full breakdown for that hour.
-      </p>
+<div class="chart-wrap">
+  <canvas id="hourlyChart" height="90"></canvas>
+</div>
+<p class="hint">Click a bar or a table row to see the full breakdown for that hour.</p>
 
-      <div class="table-wrap">
-        <table id="hourlyTable">
-          <thead>
-            <tr>
-              <th>Hour</th>
-              <th>Net Sales</th>
-              <th>Transactions</th>
-              <th>Labor Hrs</th>
-              <th>Est. Staff</th>
-              <th>Scheduled</th>
-              <th>Labor % of Sales</th>
-              <th>Sales / Labor Hr</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
+<div class="table-wrap">
+  <table id="hourlyTable">
+    <thead>
+      <tr>
+        <th>Hour</th>
+        <th>Net Sales</th>
+        <th>Transactions</th>
+        <th>Labor Hrs</th>
+        <th>Est. Staff</th>
+        <th>Scheduled</th>
+        <th>Labor % of Sales</th>
+        <th>Sales / Labor Hr</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
 
-      <hr class="section-divider" />
+<hr class="section-divider" />
 
-      <div class="section-header">
-        <h3>Team Notes</h3>
-        <div style="display: flex; align-items: center; gap: 8px">
-          <input
-            type="text"
-            id="editorNameInput"
-            placeholder="Editing as..."
-            style="width: 150px"
-          />
-          <button id="addPersonBtn">+ Add Person</button>
-        </div>
-      </div>
-      <p class="hint">
-        Private - stored only in team_notes.json on this machine, never sent to
-        LifeLenz or anywhere else. Every change is attributed to whatever name
-        is in "Editing as" above.
-      </p>
-      <div id="teamNotesError"></div>
-      <div class="team-notes-list" id="teamNotesList"></div>
-    </div>
-    <!-- /.page -->
+<div class="section-header">
+  <h3>Team Notes</h3>
+  <div style="display:flex; align-items:center; gap:8px;">
+    <input type="text" id="editorNameInput" placeholder="Editing as..." style="width:150px;" />
+    <button id="addPersonBtn">+ Add Person</button>
+  </div>
+</div>
+<p class="hint">Private - stored only in team_notes.json on this machine, never sent to LifeLenz or anywhere else. Every change is attributed to whatever name is in "Editing as" above.</p>
+<div id="teamNotesError"></div>
+<div class="team-notes-list" id="teamNotesList"></div>
 
-    <div class="modal-overlay" id="modalOverlay">
-      <div class="modal">
-        <button class="modal-close" id="modalClose" aria-label="Close">
-          &times;
-        </button>
-        <h2 id="modalTitle"></h2>
-        <div id="modalNote"></div>
-        <div id="modalBody"></div>
-      </div>
-    </div>
+</div><!-- /.page -->
 
-    <script src="/common.js"></script>
-    <script>
-      const CARD_FIELDS = [
-        [
-          "net_sales",
-          "Net Sales",
-          (v) =>
-            "$" +
-            Number(v).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            }),
-        ],
-        ["transactions", "Transactions", (v) => Number(v).toLocaleString()],
-        ["sandwiches", "Sandwiches", (v) => Number(v).toLocaleString()],
-        ["actual_punch_hours", "Labor Hours", (v) => Number(v).toFixed(1)],
-        [
-          "labour_percentage_of_sales",
-          "Labor % of Sales",
-          (v) => Number(v).toFixed(1) + "%",
-        ],
-        [
-          "sales_per_punch_hour",
-          "Sales / Labor Hr",
-          (v) => "$" + Number(v).toFixed(2),
-        ],
-      ];
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+    <h2 id="modalTitle"></h2>
+    <div id="modalNote"></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
 
-      // Since granularity is "hour", a hour-bucket's actual_punch_hours is the sum of
-      // clocked hours worked within that 60-minute window - if most people clock a full
-      // hour, that number is a reasonable stand-in for "how many people were on duty".
-      // It's an estimate, not a real headcount: LifeLenz's API doesn't expose one directly.
-      function estStaff(hours) {
-        return Math.round(Number(hours) || 0);
-      }
+<script src="/common.js"></script>
+<script>
+const CARD_FIELDS = [
+  ["net_sales", "Net Sales", v => "$" + Number(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})],
+  ["transactions", "Transactions", v => Number(v).toLocaleString()],
+  ["sandwiches", "Sandwiches", v => Number(v).toLocaleString()],
+  ["actual_punch_hours", "Labor Hours", v => Number(v).toFixed(1)],
+  ["labour_percentage_of_sales", "Labor % of Sales", v => Number(v).toFixed(1) + "%"],
+  ["sales_per_punch_hour", "Sales / Labor Hr", v => "$" + Number(v).toFixed(2)],
+];
 
-      const MODAL_FIELD_GROUPS = [
-        {
-          title: "Volume & Sales",
-          fields: [
-            ["net_sales", "Net Sales", fmtMoney],
-            ["transactions", "Transactions", fmtInt],
-            [
-              "total_transactions_variation",
-              "Transactions vs Forecast",
-              fmtSigned,
-            ],
-            [
-              "drive_through_transactions_variation",
-              "Drive-Thru Trans vs Forecast",
-              fmtSigned,
-            ],
-            [
-              "window_transactions_variation",
-              "Window Trans vs Forecast",
-              fmtSigned,
-            ],
-            ["sandwiches", "Sandwiches", fmtInt],
-            ["sandwich_count_variation", "Sandwiches vs Forecast", fmtSigned],
-          ],
-        },
-        {
-          title: "Speed of Service",
-          fields: [
-            ["avg_dt_service_time", "Avg Drive-Thru Time", fmtSeconds],
-            ["avg_fc_service_time", "Avg Front Counter Time", fmtSeconds],
-            ["avg_mfy_service_time", "Avg Made-For-You Time", fmtSeconds],
-          ],
-        },
-        {
-          title: "Labor",
-          fields: [
-            [
-              "actual_punch_hours",
-              "Labor Hours (this hour)",
-              (v) => Number(v).toFixed(2),
-            ],
-            [
-              "__est_staff",
-              "Est. Staff on Duty",
-              (v, f) => "~" + estStaff(f.actual_punch_hours),
-            ],
-            ["total_hours_diff", "Hours vs Scheduled", fmtSigned],
-            ["total_hours_ideal_variation", "Hours vs Ideal", fmtSigned],
-            ["labour_percentage_of_sales", "Labor % of Sales", fmtPercent],
-          ],
-        },
-        {
-          title: "Efficiency",
-          fields: [
-            [
-              "transactions_per_punch_hour",
-              "Transactions / Labor Hr",
-              (v) => Number(v).toFixed(2),
-            ],
-            ["sales_per_punch_hour", "Sales / Labor Hr", fmtMoney],
-          ],
-        },
-      ];
+// Since granularity is "hour", a hour-bucket's actual_punch_hours is the sum of
+// clocked hours worked within that 60-minute window - if most people clock a full
+// hour, that number is a reasonable stand-in for "how many people were on duty".
+// It's an estimate, not a real headcount: LifeLenz's API doesn't expose one directly.
+function estStaff(hours) {
+  return Math.round(Number(hours) || 0);
+}
 
-      function localHourLabel(isoStart) {
-        const d = new Date(isoStart);
-        return d.toLocaleTimeString([], { hour: "numeric", hour12: true });
-      }
+const MODAL_FIELD_GROUPS = [
+  {
+    title: "Volume & Sales",
+    fields: [
+      ["net_sales", "Net Sales", fmtMoney],
+      ["transactions", "Transactions", fmtInt],
+      ["total_transactions_variation", "Transactions vs Forecast", fmtSigned],
+      ["drive_through_transactions_variation", "Drive-Thru Trans vs Forecast", fmtSigned],
+      ["window_transactions_variation", "Window Trans vs Forecast", fmtSigned],
+      ["sandwiches", "Sandwiches", fmtInt],
+      ["sandwich_count_variation", "Sandwiches vs Forecast", fmtSigned],
+    ],
+  },
+  {
+    title: "Speed of Service",
+    fields: [
+      ["avg_dt_service_time", "Avg Drive-Thru Time", fmtSeconds],
+      ["avg_fc_service_time", "Avg Front Counter Time", fmtSeconds],
+      ["avg_mfy_service_time", "Avg Made-For-You Time", fmtSeconds],
+    ],
+  },
+  {
+    title: "Labor",
+    fields: [
+      ["actual_punch_hours", "Labor Hours (this hour)", v => Number(v).toFixed(2)],
+      ["__est_staff", "Est. Staff on Duty", (v, f) => "~" + estStaff(f.actual_punch_hours)],
+      ["total_hours_diff", "Hours vs Scheduled", fmtSigned],
+      ["total_hours_ideal_variation", "Hours vs Ideal", fmtSigned],
+      ["labour_percentage_of_sales", "Labor % of Sales", fmtPercent],
+    ],
+  },
+  {
+    title: "Efficiency",
+    fields: [
+      ["transactions_per_punch_hour", "Transactions / Labor Hr", v => Number(v).toFixed(2)],
+      ["sales_per_punch_hour", "Sales / Labor Hr", fmtMoney],
+    ],
+  },
+];
 
-      // Same idea as localHour24 (in common.js) but keeps minutes, since floor-manager matching
-      // below needs to tell 3:30pm from 4:00pm, not just "afternoon".
-      function localHourDecimal(isoStart, utcOffsetHours) {
-        const d = new Date(isoStart);
-        const raw = d.getUTCHours() + d.getUTCMinutes() / 60 + utcOffsetHours;
-        return ((raw % 24) + 24) % 24;
-      }
+function localHourLabel(isoStart) {
+  const d = new Date(isoStart);
+  return d.toLocaleTimeString([], { hour: "numeric", hour12: true });
+}
 
-      function formatClockTime(isoStart, utcOffsetHours) {
-        const h = localHourDecimal(isoStart, utcOffsetHours);
-        const hh24 = Math.floor(h);
-        const mm = Math.round((h - hh24) * 60) % 60;
-        const period = hh24 < 12 ? "AM" : "PM";
-        const hh12 = hh24 % 12 === 0 ? 12 : hh24 % 12;
-        return `${hh12}:${String(mm).padStart(2, "0")} ${period}`;
-      }
+function renderShiftCards(summary, cfg) {
+  const el = document.getElementById("shiftCards");
+  el.innerHTML = "";
+  if (!cfg) return;
 
-      // Staff shift types don't share the sales-daypart boundaries used by classifyShift
-      // (5am/11am/4pm, plus a "pre-open hours belong to last night's closing crew" wraparound
-      // that only makes sense for backward-looking labor accounting). A crew member's actual
-      // named shift is grouped by where its start time falls relative to the known manager
-      // shift starts: night managers begin ~3:30pm, mid managers ~7-8am, so those become the
-      // bucket edges - not because they're "correct" in the abstract, just because they're the
-      // only fixed reference points known here. No pre-open wraparound: a shift starting at
-      // 4:30am is a morning shift, full stop, not leftover from last night.
-      function classifyStaffShift(shift, cfg) {
-        const start = localHourDecimal(
-          shift.shiftStartTime,
-          cfg.utcOffsetHours,
-        );
-        if (start >= 15) return "night";
-        if (start >= 6.5) return "mid";
-        return "morning";
-      }
-
-      // "Floor manager" isn't a field LifeLenz exposes (isShiftRunner is unused at this store,
-      // role tags are a shared skills list rather than a per-shift position, and Employment.isManager
-      // misses managers-in-training who run shifts without being flagged as a manager - confirmed by
-      // Riley Peel's Aug 10 shift: 3:30pm-11:30pm with PRE-SHIFT+FLOOR tags, isManager=false, and
-      // genuinely the floor manager that night). So this matches on shift-time pattern, but only
-      // among people already tagged manager/GM/MIT some way - Kilie Bartholomew is strictly crew
-      // with no tag at all and got a false "guess" on Aug 10 morning before this gate existed,
-      // which is worse than not guessing. Night's window has to stay narrow (+/-15min around 3:30pm)
-      // specifically because 4:00pm is a very common ordinary closing-shift start time - a wider
-      // band caught regular crew (Kyle Eacker, Parker Hubert, Ja'Niya Kempker all start exactly
-      // 4:00pm) as false positives on Aug 10 before this was tightened. Mid covers both observed
-      // start times (7am/8am-5pm), looser since it's "almost always" rather than "literally always".
-      // Mid must end at 5 or 6pm specifically - 4pm was another false-positive source (regular
-      // mid-shift crew clock out then too). Morning must end no earlier than 11am - still a
-      // guess on the start side, but a manager covering the open can't be gone before mid
-      // even starts.
-      function matchFloorManagerShift(shift, cfg) {
-        if (
-          !isRealManager(shift, cfg) &&
-          !nameIn(cfg.managersInTraining, shift.name)
-        )
-          return null;
-
-        const start = localHourDecimal(
-          shift.shiftStartTime,
-          cfg.utcOffsetHours,
-        );
-        const end = localHourDecimal(shift.shiftEndTime, cfg.utcOffsetHours);
-        const shiftKey = classifyStaffShift(shift, cfg);
-        if (shiftKey === "night" && start >= 15.25 && start < 15.75)
-          return { shiftKey, confidence: "confirmed" };
-        if (
-          shiftKey === "mid" &&
-          start < 9 &&
-          ((end >= 16.75 && end < 17.25) || (end >= 17.75 && end < 18.25))
-        )
-          return { shiftKey, confidence: "confirmed" };
-        if (shiftKey === "morning" && start < 7 && end >= 11)
-          return { shiftKey, confidence: "guess" };
-        return null;
-      }
-
-      function renderShiftCards(summary, cfg) {
-        const el = document.getElementById("shiftCards");
-        el.innerHTML = "";
-        if (!cfg) return;
-
-        for (const { key, name } of SHIFT_DEFS) {
-          const s = summary[key];
-          const goal = cfg.goals[key];
-          let goalHtml,
-            cardClass = "";
-          if (goal == null) {
-            goalHtml = `<div class="goal unset">No goal set</div>`;
-          } else {
-            const pass = s.laborPct <= goal;
-            cardClass = pass ? "goal-pass" : "goal-fail";
-            goalHtml = `<div class="goal ${pass ? "pass" : "fail"}">${pass ? "✓" : "✗"} Goal ≤${goal}% ${pass ? "met" : "missed"}</div>`;
-          }
-          const div = document.createElement("div");
-          div.className = "card " + cardClass;
-          div.innerHTML = `
+  for (const { key, name } of SHIFT_DEFS) {
+    const s = summary[key];
+    const goal = cfg.goals[key];
+    let goalHtml, cardClass = "";
+    if (goal == null) {
+      goalHtml = `<div class="goal unset">No goal set</div>`;
+    } else {
+      const pass = s.laborPct <= goal;
+      cardClass = pass ? "goal-pass" : "goal-fail";
+      goalHtml = `<div class="goal ${pass ? "pass" : "fail"}">${pass ? "✓" : "✗"} Goal ≤${goal}% ${pass ? "met" : "missed"}</div>`;
+    }
+    const div = document.createElement("div");
+    div.className = "card " + cardClass;
+    div.innerHTML = `
       <div class="label">${name} (${shiftTimeRange(key, cfg)})</div>
       <div class="value">${s.laborPct.toFixed(1)}%</div>
       <div class="sub">${fmtMoney(s.sales)} sales &middot; ${s.hours.toFixed(1)} labor hrs &middot; ~${Math.round(s.avgStaff)} avg staff</div>
       ${goalHtml}
     `;
-          el.appendChild(div);
-        }
-      }
+    el.appendChild(div);
+  }
+}
 
-      async function loadRoster(dateStr) {
-        await shiftConfigPromise;
-        const errorEl = document.getElementById("rosterError");
-        errorEl.style.display = "none";
+async function loadRoster(dateStr) {
+  await shiftConfigPromise;
+  const errorEl = document.getElementById("rosterError");
+  errorEl.style.display = "none";
 
-        const url = dateStr ? `/api/roster?date=${dateStr}` : "/api/roster";
-        let body;
-        try {
-          const resp = await fetch(url);
-          body = await resp.json();
-          if (!resp.ok)
-            throw new Error(body.error || `Request failed (${resp.status})`);
-        } catch (e) {
-          errorEl.textContent = "Couldn't load the roster: " + e.message;
-          errorEl.style.display = "block";
-          document.getElementById("rosterCards").innerHTML = "";
-          return;
-        }
+  const url = dateStr ? `/api/roster?date=${dateStr}` : "/api/roster";
+  let body;
+  try {
+    const resp = await fetch(url);
+    body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || `Request failed (${resp.status})`);
+  } catch (e) {
+    errorEl.textContent = "Couldn't load the roster: " + e.message;
+    errorEl.style.display = "block";
+    document.getElementById("rosterCards").innerHTML = "";
+    return;
+  }
 
-        currentRoster = body.shifts;
-        currentRosterDate = dateStr || new Date().toISOString().slice(0, 10);
-        renderRosterCards(body.shifts, shiftConfig);
-        if (currentHours.length) renderHourlyTable(currentHours);
-        renderGlancePanel();
-        renderCutSuggestions();
+  currentRoster = body.shifts;
+  currentRosterDate = dateStr || new Date().toISOString().slice(0, 10);
+  renderRosterCards(body.shifts, shiftConfig);
+  if (currentHours.length) renderHourlyTable(currentHours);
+  renderGlancePanel();
+}
 
-        const namesList = document.getElementById("rosterNamesList");
-        const uniqueNames = [...new Set(body.shifts.map((s) => s.name))].sort();
-        namesList.innerHTML = uniqueNames.map((n) => `<option value="${escapeHtml(n)}"></option>`).join("");
-      }
+// A shift "covers" an hour bucket if it overlaps that hour at all, not just if it
+// starts exactly then - someone on an 11am-4pm shift is scheduled during the 1pm hour.
+function staffScheduledDuring(hourStartIso, roster) {
+  const hourStart = new Date(hourStartIso).getTime();
+  const hourEnd = hourStart + 60 * 60 * 1000;
+  return roster.filter(s => {
+    const shiftStart = new Date(s.shiftStartTime).getTime();
+    const shiftEnd = new Date(s.shiftEndTime).getTime();
+    return shiftStart < hourEnd && shiftEnd > hourStart;
+  });
+}
 
-      // A shift "covers" an hour bucket if it overlaps that hour at all, not just if it
-      // starts exactly then - someone on an 11am-4pm shift is scheduled during the 1pm hour.
-      function staffScheduledDuring(hourStartIso, roster) {
-        const hourStart = new Date(hourStartIso).getTime();
-        const hourEnd = hourStart + 60 * 60 * 1000;
-        return roster.filter((s) => {
-          const shiftStart = new Date(s.shiftStartTime).getTime();
-          const shiftEnd = new Date(s.shiftEndTime).getTime();
-          return shiftStart < hourEnd && shiftEnd > hourStart;
-        });
-      }
+function renderRosterCards(shifts, cfg) {
+  const el = document.getElementById("rosterCards");
+  el.innerHTML = "";
+  if (!cfg) return;
 
-      // isManager is a LifeLenz field; GM and manager-in-training aren't tracked by LifeLenz at
-      // all (the GENERAL MANAGER role exists in the catalog but isn't actually assigned to
-      // anyone in the data), so both are manually maintained name lists in .env instead.
-      function nameIn(list, name) {
-        return list.some((n) => n.toLowerCase() === name.toLowerCase());
-      }
+  if (!shifts.length) {
+    el.innerHTML = `<div class="card"><div class="roster-empty">No shifts found for this date - the schedule may not be published yet (usually goes up Wed/Thu for the coming week).</div></div>`;
+    return;
+  }
 
-      function isRealManager(shift, cfg) {
-        return (
-          shift.isManager ||
-          nameIn(cfg.manualManagers, shift.name) ||
-          nameIn(cfg.generalManagers, shift.name)
-        );
-      }
+  const buckets = { morning: [], mid: [], night: [] };
+  for (const s of shifts) {
+    const key = classifyStaffShift(s, cfg);
+    buckets[key].push(s);
+  }
 
-      function staffTag(shift, cfg) {
-        if (nameIn(cfg.generalManagers, shift.name)) return " (GM)";
-        if (shift.isManager || nameIn(cfg.manualManagers, shift.name))
-          return " (mgr)";
-        if (nameIn(cfg.managersInTraining, shift.name)) return " (MIT)";
-        return "";
-      }
+  for (const { key, name } of SHIFT_DEFS) {
+    const shiftsInBucket = buckets[key].slice().sort((a, b) => new Date(a.shiftStartTime) - new Date(b.shiftStartTime));
+    const managers = shiftsInBucket.filter(s => matchFloorManagerShift(s, cfg)?.shiftKey === key);
 
-      function renderRosterCards(shifts, cfg) {
-        const el = document.getElementById("rosterCards");
-        el.innerHTML = "";
-        if (!cfg) return;
+    const div = document.createElement("div");
+    div.className = "card";
 
-        if (!shifts.length) {
-          el.innerHTML = `<div class="card"><div class="roster-empty">No shifts found for this date - the schedule may not be published yet (usually goes up Wed/Thu for the coming week).</div></div>`;
-          return;
-        }
-
-        const buckets = { morning: [], mid: [], night: [] };
-        for (const s of shifts) {
-          const key = classifyStaffShift(s, cfg);
-          buckets[key].push(s);
-        }
-
-        for (const { key, name } of SHIFT_DEFS) {
-          const shiftsInBucket = buckets[key]
-            .slice()
-            .sort(
-              (a, b) => new Date(a.shiftStartTime) - new Date(b.shiftStartTime),
-            );
-          const managers = shiftsInBucket.filter(
-            (s) => matchFloorManagerShift(s, cfg)?.shiftKey === key,
-          );
-
-          const div = document.createElement("div");
-          div.className = "card";
-
-          const managerHtml = managers.length
-            ? managers
-                .map((m) => {
-                  const conf = matchFloorManagerShift(m, cfg).confidence;
-                  return `<div class="roster-manager">
+    const managerHtml = managers.length
+      ? managers.map(m => {
+          const conf = matchFloorManagerShift(m, cfg).confidence;
+          return `<div class="roster-manager">
             <span class="badge">${conf === "guess" ? "Floor Manager? (best guess)" : "Floor Manager"}</span><br>
             ${m.name}${staffTag(m, cfg)} <span class="time">${formatClockTime(m.shiftStartTime, cfg.utcOffsetHours)} - ${formatClockTime(m.shiftEndTime, cfg.utcOffsetHours)}</span>
           </div>`;
-                })
-                .join("")
-            : `<div class="roster-manager" style="opacity:0.6"><span class="badge">Floor Manager</span><br>No clear match this shift</div>`;
+        }).join("")
+      : `<div class="roster-manager" style="opacity:0.6"><span class="badge">Floor Manager</span><br>No clear match this shift</div>`;
 
-          const managerIds = new Set(managers.map((m) => m.shiftId));
-          const crew = shiftsInBucket.filter((s) => !managerIds.has(s.shiftId));
-          const crewHtml = crew.length
-            ? `<ul class="roster-list">${crew
-                .map(
-                  (s) => `
+    const managerIds = new Set(managers.map(m => m.shiftId));
+    const crew = shiftsInBucket.filter(s => !managerIds.has(s.shiftId));
+    const crewHtml = crew.length
+      ? `<ul class="roster-list">${crew.map(s => `
           <li>
             <span>${s.name}${staffTag(s, cfg)} <span class="time">${formatClockTime(s.shiftStartTime, cfg.utcOffsetHours)}-${formatClockTime(s.shiftEndTime, cfg.utcOffsetHours)}</span></span>
             <span class="roster-role">${s.roles.slice(0, 2).join(", ") || "-"}</span>
-          </li>`,
-                )
-                .join("")}</ul>`
-            : `<div class="roster-empty">No other crew scheduled</div>`;
+          </li>`).join("")}</ul>`
+      : `<div class="roster-empty">No other crew scheduled</div>`;
 
-          div.innerHTML = `<div class="label">${name} (${shiftTimeRange(key, cfg)})</div>${managerHtml}${crewHtml}`;
-          el.appendChild(div);
-        }
+    div.innerHTML = `<div class="label">${name} (${shiftTimeRange(key, cfg)})</div>${managerHtml}${crewHtml}`;
+    el.appendChild(div);
+  }
+}
+
+// Rough "narrow skillset" signal: trainedRoleCount is how many role tags LifeLenz has
+// ever recorded for someone (a mix of real stations and admin/program tags, not a clean
+// station list - LifeLenz doesn't track physical stations like Runner/Table1/Back Cash
+// at all, confirmed earlier), so this can't name the specific gap, only flag that someone
+// has few recorded tags relative to the rest of the crew. It's also just wrong sometimes -
+// Parker Hubert showed 0 tags despite knowing every position, a LifeLenz data gap rather
+// than a real one - hence the manual exemption list.
+const SKILL_GAP_THRESHOLD = 5;
+
+// "Working with today" is scoped to the night shift specifically (that's the shift being
+// asked about), not everyone scheduled that whole day - so this checks whether the shift
+// actually overlaps night hours (ends after nightStartHour) rather than just listing anyone
+// on the roster.
+function renderGlancePanel() {
+  const el = document.getElementById("glancePanel");
+  if (!shiftConfig || !currentRoster.length) { el.innerHTML = ""; return; }
+
+  const peopleToday = [...new Map(currentRoster.map(s => [s.name.toLowerCase(), s])).values()];
+  const nightPeople = peopleToday.filter(s => worksIntoNightShift(s, currentRosterDate, shiftConfig));
+
+  const disliked = [];
+  const cautions = [];
+  const skillGaps = [];
+  const minors = [];
+
+  for (const s of nightPeople) {
+    const note = teamNoteFor(teamNotes, s.name);
+    if (note?.rapport === "dislike") disliked.push(s);
+    if (note?.caution) cautions.push({ shift: s, reason: note.cautionNote });
+    if (note?.isMinor) minors.push(s);
+  }
+  for (const s of nightPeople) {
+    if (
+      !isRealManager(s, shiftConfig) &&
+      !nameIn(shiftConfig.managersInTraining, s.name) &&
+      !nameIn(shiftConfig.skillGapExempt, s.name) &&
+      s.trainedRoleCount != null &&
+      s.trainedRoleCount <= SKILL_GAP_THRESHOLD
+    ) {
+      skillGaps.push({ shift: s, count: s.trainedRoleCount });
+    }
+  }
+
+  // Shift times are here specifically so it's obvious how long each flagged person is
+  // actually around for, not just that they're scheduled at all.
+  const shiftSuffix = s => `${formatClockTime(s.shiftStartTime, shiftConfig.utcOffsetHours)}-${formatClockTime(s.shiftEndTime, shiftConfig.utcOffsetHours)}`;
+
+  const rows = [];
+  if (disliked.length) {
+    rows.push(`<div class="glance-row dislike"><span class="icon">👎</span><span>Working with today: ${disliked.map(s => `<span class="glance-chip">${escapeHtml(s.name)} <span class="glance-chip-time">(${shiftSuffix(s)})</span></span>`).join("")}</span></div>`);
+  }
+  if (cautions.length) {
+    rows.push(`<div class="glance-row caution"><span class="icon">⚠️</span><span>Caution today: ${cautions.map(c => `<span class="glance-chip">${escapeHtml(c.shift.name)} <span class="glance-chip-time">(${shiftSuffix(c.shift)})</span>${c.reason ? " - " + escapeHtml(c.reason) : ""}</span>`).join("")}</span></div>`);
+  }
+  if (skillGaps.length) {
+    rows.push(`<div class="glance-row skill-gap"><span class="icon">🎯</span><span>Narrow skillset today: ${skillGaps.map(g => `<span class="glance-chip">${escapeHtml(g.shift.name)} <span class="glance-chip-time">(${shiftSuffix(g.shift)})</span> - ${g.count} tags</span>`).join("")}</span></div>`);
+  }
+  if (minors.length) {
+    rows.push(`<div class="glance-row minor"><span class="icon">🧒</span><span>Minors on shift today - make sure they get their legally required break: ${minors.map(s => `<span class="glance-chip">${escapeHtml(s.name)} <span class="glance-chip-time">(${shiftSuffix(s)})</span></span>`).join("")}</span></div>`);
+  }
+  // Bragging rights only - lower labor % of sales is better, so this only fires when
+  // night is actually beating a daypart, never the other way around (nobody asked for
+  // a guilt trip when mornings are winning).
+  if (currentShiftSummary) {
+    const night = currentShiftSummary.night;
+    const wins = [];
+    if (night.sales > 0 || night.hours > 0) {
+      if (currentShiftSummary.morning.sales > 0 && night.laborPct < currentShiftSummary.morning.laborPct) {
+        wins.push(`Mornings by ${(currentShiftSummary.morning.laborPct - night.laborPct).toFixed(1)} pts`);
       }
-
-      let currentShiftEvents = [];
-
-      const EVENT_TYPE_LABELS = {
-        added: "➕ Added",
-        subbed: "🔄 Subbed",
-        cut: "✂️ Cut",
-        break_start: "☕ Break Start",
-        break_end: "▶️ Break End",
-      };
-
-      async function loadShiftEvents(dateStr) {
-        const errorEl = document.getElementById("shiftEventsError");
-        errorEl.style.display = "none";
-        try {
-          const resp = await fetch(`/api/shift-events?date=${dateStr}`);
-          const body = await resp.json();
-          if (!resp.ok) throw new Error(body.error || `Request failed (${resp.status})`);
-          currentShiftEvents = body.events;
-        } catch (e) {
-          errorEl.textContent = "Couldn't load the day log: " + e.message;
-          errorEl.style.display = "block";
-          return;
-        }
-        renderDayLog();
-        renderCutSuggestions();
+      if (currentShiftSummary.mid.sales > 0 && night.laborPct < currentShiftSummary.mid.laborPct) {
+        wins.push(`Mid by ${(currentShiftSummary.mid.laborPct - night.laborPct).toFixed(1)} pts`);
       }
+    }
+    if (wins.length) {
+      rows.push(`<div class="glance-row competitive"><span class="icon">🏆</span><span>Beating ${wins.join(" and ")} on labor % today</span></div>`);
+    }
+  }
+  if (!rows.length) {
+    rows.push(`<div class="glance-row all-clear"><span class="icon">✅</span><span>No flags for today's crew</span></div>`);
+  }
 
-      function renderDayLog() {
-        const ul = document.getElementById("dayLogList");
-        ul.innerHTML = "";
-        if (!currentShiftEvents.length) {
-          ul.innerHTML = `<li class="roster-empty">No events logged for this day yet</li>`;
-          return;
-        }
-        for (const ev of currentShiftEvents) {
-          const li = document.createElement("li");
-          const timeLabel = new Date(ev.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-          li.innerHTML = `
-      <span><strong>${timeLabel}</strong> - ${EVENT_TYPE_LABELS[ev.eventType] || ev.eventType} - ${escapeHtml(ev.employeeName)}${ev.note ? ": " + escapeHtml(ev.note) : ""} <span class="time">(logged by ${escapeHtml(ev.author)})</span></span>
-      <button class="day-log-delete" data-id="${ev.id}">&times;</button>
-    `;
-          li.querySelector(".day-log-delete").addEventListener("click", async () => {
-            await fetch(`/api/shift-events/${ev.id}`, { method: "DELETE" });
-            loadShiftEvents(datePicker.value);
-          });
-          ul.appendChild(li);
-        }
-      }
+  el.innerHTML = `<h4>At a Glance</h4>${rows.join("")}`;
+}
 
-      // Reads the "HH:MM" <input type=time> value as the store's local time (per
-      // cfg.utcOffsetHours), not the viewer's browser timezone - same reasoning as
-      // worksIntoNightShift above.
-      function storeLocalTimeToISO(dateStr, timeStr, cfg) {
-        const [y, m, d] = dateStr.split("-").map(Number);
-        const [hh, mm] = timeStr.split(":").map(Number);
-        return new Date(Date.UTC(y, m - 1, d, hh - cfg.utcOffsetHours, mm)).toISOString();
-      }
+let chart = null;
+let currentHours = [];
+let currentRoster = [];
+let currentRosterDate = null;
+let currentShiftSummary = null;
 
-      // Rough "narrow skillset" signal: trainedRoleCount is how many role tags LifeLenz has
-      // ever recorded for someone (a mix of real stations and admin/program tags, not a clean
-      // station list - LifeLenz doesn't track physical stations like Runner/Table1/Back Cash
-      // at all, confirmed earlier), so this can't name the specific gap, only flag that someone
-      // has few recorded tags relative to the rest of the crew. It's also just wrong sometimes -
-      // Parker Hubert showed 0 tags despite knowing every position, a LifeLenz data gap rather
-      // than a real one - hence the manual exemption list.
-      const SKILL_GAP_THRESHOLD = 5;
+async function loadData(dateStr) {
+  const statusEl = document.getElementById("status");
+  const errorEl = document.getElementById("error");
+  errorEl.style.display = "none";
+  statusEl.textContent = "Loading…";
 
-      function teamNoteFor(name) {
-        return teamNotes.find(
-          (p) => p.name.toLowerCase() === name.toLowerCase(),
-        );
-      }
+  const url = dateStr ? `/api/dar?date=${dateStr}` : "/api/dar";
+  let resp, body;
+  try {
+    await shiftConfigPromise;
+    resp = await fetch(url);
+    body = await resp.json();
+  } catch (e) {
+    statusEl.textContent = "";
+    errorEl.textContent = "Couldn't reach the local server: " + e;
+    errorEl.style.display = "block";
+    return;
+  }
 
-      // "Working with today" is scoped to the night shift specifically (that's the shift being
-      // asked about), not everyone scheduled that whole day - so this checks whether the shift
-      // actually overlaps night hours (ends after nightStartHour) rather than just listing anyone
-      // on the roster. Compared as real timestamps, not hour-of-day numbers, so a shift ending
-      // after midnight doesn't wrap around and look like it ends "early".
-      function worksIntoNightShift(shift, dateStr, cfg) {
-        const [y, m, d] = dateStr.split("-").map(Number);
-        const nightStartUTC = Date.UTC(
-          y,
-          m - 1,
-          d,
-          cfg.nightStartHour - cfg.utcOffsetHours,
-          0,
-          0,
-        );
-        return new Date(shift.shiftEndTime).getTime() > nightStartUTC;
-      }
+  if (!resp.ok) {
+    statusEl.textContent = "";
+    errorEl.textContent = body.error || `Request failed (${resp.status})`;
+    errorEl.style.display = "block";
+    return;
+  }
 
-      function renderGlancePanel() {
-        const el = document.getElementById("glancePanel");
-        if (!shiftConfig || !currentRoster.length) {
-          el.innerHTML = "";
-          return;
-        }
+  render(body);
+  statusEl.textContent = "Updated " + new Date().toLocaleTimeString();
+}
 
-        const peopleToday = [
-          ...new Map(
-            currentRoster.map((s) => [s.name.toLowerCase(), s]),
-          ).values(),
-        ];
-        const nightPeople = peopleToday.filter((s) =>
-          worksIntoNightShift(s, currentRosterDate, shiftConfig),
-        );
+function computeInsights(darData) {
+  const hours = darData.dar;
+  if (!hours.length) return null;
 
-        const disliked = [];
-        const cautions = [];
-        const skillGaps = [];
-        const minors = [];
+  const withField = code => hours.map(h => Number(fieldMap(h.data)[code] || 0));
+  const sales = withField("net_sales");
+  const laborHours = withField("actual_punch_hours");
+  const laborPct = withField("labour_percentage_of_sales");
 
-        for (const s of nightPeople) {
-          const note = teamNoteFor(s.name);
-          if (note?.rapport === "dislike") disliked.push(s);
-          if (note?.caution)
-            cautions.push({ shift: s, reason: note.cautionNote });
-          if (note?.isMinor) minors.push(s);
-        }
-        for (const s of nightPeople) {
-          if (
-            !isRealManager(s, shiftConfig) &&
-            !nameIn(shiftConfig.managersInTraining, s.name) &&
-            !nameIn(shiftConfig.skillGapExempt, s.name) &&
-            s.trainedRoleCount != null &&
-            s.trainedRoleCount <= SKILL_GAP_THRESHOLD
-          ) {
-            skillGaps.push({ shift: s, count: s.trainedRoleCount });
-          }
-        }
+  const argMax = arr => arr.reduce((best, v, i) => (v > arr[best] ? i : best), 0);
 
-        // Shift times are here specifically so it's obvious how long each flagged person is
-        // actually around for, not just that they're scheduled at all.
-        const shiftSuffix = (s) =>
-          `${formatClockTime(s.shiftStartTime, shiftConfig.utcOffsetHours)}-${formatClockTime(s.shiftEndTime, shiftConfig.utcOffsetHours)}`;
+  const peakSalesIdx = argMax(sales);
+  const peakStaffIdx = argMax(laborHours);
 
-        const rows = [];
-        if (disliked.length) {
-          rows.push(
-            `<div class="glance-row dislike"><span class="icon">👎</span><span>Working with today: ${disliked.map((s) => `<span class="glance-chip">${escapeHtml(s.name)} <span class="glance-chip-time">(${shiftSuffix(s)})</span></span>`).join("")}</span></div>`,
-          );
-        }
-        if (cautions.length) {
-          rows.push(
-            `<div class="glance-row caution"><span class="icon">⚠️</span><span>Caution today: ${cautions.map((c) => `<span class="glance-chip">${escapeHtml(c.shift.name)} <span class="glance-chip-time">(${shiftSuffix(c.shift)})</span>${c.reason ? " - " + escapeHtml(c.reason) : ""}</span>`).join("")}</span></div>`,
-          );
-        }
-        if (skillGaps.length) {
-          rows.push(
-            `<div class="glance-row skill-gap"><span class="icon">🎯</span><span>Narrow skillset today: ${skillGaps.map((g) => `<span class="glance-chip">${escapeHtml(g.shift.name)} <span class="glance-chip-time">(${shiftSuffix(g.shift)})</span> - ${g.count} tags</span>`).join("")}</span></div>`,
-          );
-        }
-        if (minors.length) {
-          rows.push(
-            `<div class="glance-row minor"><span class="icon">🧒</span><span>Minors on shift today - make sure they get their legally required break: ${minors.map((s) => `<span class="glance-chip">${escapeHtml(s.name)} <span class="glance-chip-time">(${shiftSuffix(s)})</span></span>`).join("")}</span></div>`,
-          );
-        }
-        // Bragging rights only - lower labor % of sales is better, so this only fires when
-        // night is actually beating a daypart, never the other way around (nobody asked for
-        // a guilt trip when mornings are winning).
-        if (currentShiftSummary) {
-          const night = currentShiftSummary.night;
-          const wins = [];
-          if (night.sales > 0 || night.hours > 0) {
-            if (
-              currentShiftSummary.morning.sales > 0 &&
-              night.laborPct < currentShiftSummary.morning.laborPct
-            ) {
-              wins.push(
-                `Mornings by ${(currentShiftSummary.morning.laborPct - night.laborPct).toFixed(1)} pts`,
-              );
-            }
-            if (
-              currentShiftSummary.mid.sales > 0 &&
-              night.laborPct < currentShiftSummary.mid.laborPct
-            ) {
-              wins.push(
-                `Mid by ${(currentShiftSummary.mid.laborPct - night.laborPct).toFixed(1)} pts`,
-              );
-            }
-          }
-          if (wins.length) {
-            rows.push(
-              `<div class="glance-row competitive"><span class="icon">🏆</span><span>Beating ${wins.join(" and ")} on labor % today</span></div>`,
-            );
-          }
-        }
-        if (!rows.length) {
-          rows.push(
-            `<div class="glance-row all-clear"><span class="icon">✅</span><span>No flags for today's crew</span></div>`,
-          );
-        }
+  const activeHours = laborHours.filter(h => h > 0);
+  const avgStaff = activeHours.length
+    ? activeHours.reduce((a, b) => a + b, 0) / activeHours.length
+    : 0;
 
-        el.innerHTML = `<h4>At a Glance</h4>${rows.join("")}`;
-      }
+  return {
+    peakSales: { idx: peakSalesIdx, value: sales[peakSalesIdx], hour: hours[peakSalesIdx] },
+    peakStaff: { idx: peakStaffIdx, value: laborHours[peakStaffIdx], hour: hours[peakStaffIdx] },
+    avgStaff,
+  };
+}
 
-      function latestActiveHour(hours) {
-        // Most recent bucket that actually has some activity (sales or labor hours logged),
-        // falling back to the last bucket overall if the whole day is still empty.
-        const withActivity = hours.filter((h) => {
-          const f = fieldMap(h.data);
-          return (
-            Number(f.net_sales || 0) > 0 || Number(f.actual_punch_hours || 0) > 0
-          );
-        });
-        return withActivity.length
-          ? withActivity[withActivity.length - 1]
-          : hours[hours.length - 1];
-      }
+function renderInsightCards(insights) {
+  const el = document.getElementById("insightCards");
+  el.innerHTML = "";
+  if (!insights) return;
 
-      function computeRoleCoverage(people) {
-        const counts = {};
-        for (const s of people) {
-          for (const role of s.roles) counts[role] = (counts[role] || 0) + 1;
-        }
-        return counts;
-      }
+  const items = [
+    ["Peak Sales Hour", fmtMoney(insights.peakSales.value), localHourLabel(insights.peakSales.hour.startTime)],
+    ["Peak Staffing Hour", "~" + estStaff(insights.peakStaff.value) + " people", localHourLabel(insights.peakStaff.hour.startTime)],
+    ["Avg Staff (active hrs)", "~" + Math.round(insights.avgStaff) + " people", insights.avgStaff.toFixed(2) + " avg labor-hrs/hr"],
+  ];
+  for (const [label, value, sub] of items) {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div>`;
+    el.appendChild(div);
+  }
+}
 
-      // "Projections" here means LifeLenz's own hours-vs-ideal and labor-goal signals, not a
-      // custom forecast model - those are the only forward-looking numbers actually available.
-      // Never suggests the floor manager, never suggests someone who's the only person
-      // currently covering a role, and always checks minor break status first since that's
-      // a compliance question, not an optimization one.
-      function renderCutSuggestions() {
-        const el = document.getElementById("cutSuggestions");
-        if (
-          !shiftConfig ||
-          !currentHours.length ||
-          !currentRoster.length
-        ) {
-          el.innerHTML = "";
-          return;
-        }
+function render(darData) {
+  currentHours = darData.dar;
 
-        const latest = latestActiveHour(currentHours);
-        const f = fieldMap(latest.data);
-        const laborPctNow = Number(f.labour_percentage_of_sales || 0);
-        const idealVariance = Number(f.total_hours_ideal_variation || 0);
-        const nightGoal = shiftConfig.goals.night;
-        const overstaffed =
-          (nightGoal != null && laborPctNow > nightGoal) || idealVariance > 0.5;
+  const totals = fieldMap(darData.totals);
+  const cardsEl = document.getElementById("cards");
+  cardsEl.innerHTML = "";
+  for (const [code, label, fmt] of CARD_FIELDS) {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<div class="label">${label}</div><div class="value">${totals[code] != null ? fmt(totals[code]) : "—"}</div>`;
+    cardsEl.appendChild(div);
+  }
 
-        const peopleToday = [
-          ...new Map(
-            currentRoster.map((s) => [s.name.toLowerCase(), s]),
-          ).values(),
-        ];
-        const nightPeople = peopleToday.filter((s) =>
-          worksIntoNightShift(s, currentRosterDate, shiftConfig),
-        );
+  renderInsightCards(computeInsights(darData));
+  currentShiftSummary = shiftConfig ? computeShiftSummary(darData, shiftConfig) : null;
+  renderShiftCards(currentShiftSummary, shiftConfig);
+  renderGlancePanel();
 
-        const now = new Date();
-        const minorAlerts = [];
-        for (const s of nightPeople) {
-          const note = teamNoteFor(s.name);
-          if (!note?.isMinor) continue;
-          const shiftStart = new Date(s.shiftStartTime);
-          const shiftEnd = new Date(s.shiftEndTime);
-          // Only flag while they're actually clocked in - otherwise this kept flagging
-          // someone hours after their shift ended, since "hours since start" doesn't
-          // stop growing just because they went home.
-          if (now < shiftStart || now > shiftEnd) continue;
-          const hasBreak = currentShiftEvents.some(
-            (ev) =>
-              ev.eventType === "break_start" &&
-              ev.employeeName.toLowerCase() === s.name.toLowerCase(),
-          );
-          if (hasBreak) continue;
-          const hoursWorked = (now - shiftStart) / 3600000;
-          if (hoursWorked >= 5) minorAlerts.push({ shift: s, hoursWorked });
-        }
+  const hours = darData.dar.map(h => localHourLabel(h.startTime));
+  const salesSeries = darData.dar.map(h => Number(fieldMap(h.data).net_sales || 0));
+  const laborPctSeries = darData.dar.map(h => Number(fieldMap(h.data).labour_percentage_of_sales || 0));
+  // Goal varies by shift across the day, so this is a per-hour lookup, not one flat line.
+  // Null (gap) for hours whose shift has no goal configured yet.
+  const goalSeries = shiftConfig
+    ? darData.dar.map(h => {
+        const key = classifyShift(localHour24(h.startTime, shiftConfig.utcOffsetHours), shiftConfig);
+        return shiftConfig.goals[key];
+      })
+    : [];
 
-        const rows = [];
-        if (minorAlerts.length) {
-          rows.push(
-            `<div class="glance-row minor"><span class="icon">🧒</span><span>${minorAlerts.map((a) => `${escapeHtml(a.shift.name)} has worked ~${a.hoursWorked.toFixed(1)}hrs with no logged break`).join("; ")} - check your state's minor break requirement, this isn't legal advice</span></div>`,
-          );
-        }
+  const ctx = document.getElementById("hourlyChart");
+  const style = getComputedStyle(document.documentElement);
+  const accent = style.getPropertyValue("--accent").trim();
+  const accent2 = style.getPropertyValue("--accent-2").trim();
+  const gridColor = style.getPropertyValue("--border").trim();
+  const textColor = style.getPropertyValue("--text").trim();
+  const muted = style.getPropertyValue("--muted").trim();
 
-        if (!overstaffed) {
-          rows.push(
-            `<div class="glance-row all-clear"><span class="icon">✅</span><span>No cuts suggested right now - labor % (${laborPctNow.toFixed(1)}%) and hours vs LifeLenz's ideal (${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}) are both in range</span></div>`,
-          );
-          el.innerHTML = rows.join("");
-          return;
-        }
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    data: {
+      labels: hours,
+      datasets: [
+        {
+          type: "bar",
+          label: "Net Sales ($)",
+          data: salesSeries,
+          backgroundColor: accent,
+          yAxisID: "y",
+          borderRadius: 4,
+        },
+        {
+          type: "line",
+          label: "Labor % of Sales",
+          data: laborPctSeries,
+          borderColor: accent2,
+          backgroundColor: accent2,
+          yAxisID: "y1",
+          tension: 0.25,
+          pointRadius: 3,
+        },
+        {
+          type: "line",
+          label: "Labor Goal",
+          data: goalSeries,
+          borderColor: muted,
+          borderDash: [6, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          yAxisID: "y1",
+          spanGaps: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      onClick: (evt, elements) => {
+        if (elements.length) openModal(currentHours[elements[0].index]);
+      },
+      scales: {
+        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+        y: {
+          position: "left",
+          ticks: { color: textColor, callback: v => "$" + v },
+          grid: { color: gridColor },
+          title: { display: true, text: "Net Sales", color: textColor },
+        },
+        y1: {
+          position: "right",
+          ticks: { color: textColor, callback: v => v + "%" },
+          grid: { display: false },
+          title: { display: true, text: "Labor % of Sales", color: textColor },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: textColor } },
+      },
+    },
+  });
 
-        const floorManagerNames = new Set(
-          nightPeople
-            .filter(
-              (s) => matchFloorManagerShift(s, shiftConfig)?.shiftKey === "night",
-            )
-            .map((s) => s.name.toLowerCase()),
-        );
+  renderHourlyTable(darData.dar);
+}
 
-        // Actually clocked in right now - started already, not ended yet. Without the
-        // start-time check this suggested cutting people whose shift hadn't started yet
-        // tonight, counting the hours until "later tonight" as if they were already
-        // working and could be sent home from a shift they hadn't begun.
-        const stillOnShift = nightPeople.filter(
-          (s) =>
-            new Date(s.shiftStartTime) <= now && new Date(s.shiftEndTime) > now,
-        );
-        const roleCoverage = computeRoleCoverage(stillOnShift);
-
-        const candidates = [];
-        let protectedCount = 0;
-        for (const s of stillOnShift) {
-          if (floorManagerNames.has(s.name.toLowerCase())) continue;
-          const isSoleCoverage = s.roles.some(
-            (role) => roleCoverage[role] === 1,
-          );
-          if (isSoleCoverage) {
-            protectedCount++;
-            continue;
-          }
-          candidates.push({
-            shift: s,
-            remainingHours: (new Date(s.shiftEndTime) - now) / 3600000,
-            trainedRoleCount: s.trainedRoleCount,
-          });
-        }
-
-        candidates.sort(
-          (a, b) =>
-            b.remainingHours - a.remainingHours ||
-            a.trainedRoleCount - b.trainedRoleCount,
-        );
-        const top = candidates.slice(0, 3);
-
-        if (top.length) {
-          rows.push(
-            `<div class="glance-row skill-gap"><span class="icon">✂️</span><span>Labor is running ${nightGoal != null ? `above the ${nightGoal}% goal` : "above LifeLenz's ideal hours"} (${laborPctNow.toFixed(1)}% now, ${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}hrs vs ideal). Suggested cuts, ranked by biggest labor-hour savings:</span></div>`,
-          );
-          for (const c of top) {
-            rows.push(
-              `<div class="glance-row"><span class="icon">→</span><span>${escapeHtml(c.shift.name)} - shift ends ${formatClockTime(c.shift.shiftEndTime, shiftConfig.utcOffsetHours)} (${c.remainingHours.toFixed(1)}hrs left), ${c.trainedRoleCount} trained tags, on ${c.shift.roles.join(", ") || "no listed role"} tonight</span></div>`,
-            );
-          }
-        } else if (protectedCount > 0) {
-          rows.push(
-            `<div class="glance-row caution"><span class="icon">⚠️</span><span>Labor is over target, but everyone still on shift is the only coverage for their role right now - cutting anyone would leave a gap</span></div>`,
-          );
-        } else {
-          rows.push(
-            `<div class="glance-row caution"><span class="icon">⚠️</span><span>Labor is over target, but there's no one left to suggest cutting</span></div>`,
-          );
-        }
-
-        el.innerHTML = rows.join("");
-      }
-
-      let chart = null;
-      let currentHours = [];
-      let currentRoster = [];
-      let currentRosterDate = null;
-      let currentShiftSummary = null;
-
-      async function loadData(dateStr) {
-        const statusEl = document.getElementById("status");
-        const errorEl = document.getElementById("error");
-        errorEl.style.display = "none";
-        statusEl.textContent = "Loading…";
-
-        const url = dateStr ? `/api/dar?date=${dateStr}` : "/api/dar";
-        let resp, body;
-        try {
-          await shiftConfigPromise;
-          resp = await fetch(url);
-          body = await resp.json();
-        } catch (e) {
-          statusEl.textContent = "";
-          errorEl.textContent = "Couldn't reach the local server: " + e;
-          errorEl.style.display = "block";
-          return;
-        }
-
-        if (!resp.ok) {
-          statusEl.textContent = "";
-          errorEl.textContent = body.error || `Request failed (${resp.status})`;
-          errorEl.style.display = "block";
-          return;
-        }
-
-        render(body);
-        statusEl.textContent = "Updated " + new Date().toLocaleTimeString();
-      }
-
-      function computeInsights(darData) {
-        const hours = darData.dar;
-        if (!hours.length) return null;
-
-        const withField = (code) =>
-          hours.map((h) => Number(fieldMap(h.data)[code] || 0));
-        const sales = withField("net_sales");
-        const laborHours = withField("actual_punch_hours");
-        const laborPct = withField("labour_percentage_of_sales");
-
-        const argMax = (arr) =>
-          arr.reduce((best, v, i) => (v > arr[best] ? i : best), 0);
-
-        const peakSalesIdx = argMax(sales);
-        const peakStaffIdx = argMax(laborHours);
-
-        const activeHours = laborHours.filter((h) => h > 0);
-        const avgStaff = activeHours.length
-          ? activeHours.reduce((a, b) => a + b, 0) / activeHours.length
-          : 0;
-
-        return {
-          peakSales: {
-            idx: peakSalesIdx,
-            value: sales[peakSalesIdx],
-            hour: hours[peakSalesIdx],
-          },
-          peakStaff: {
-            idx: peakStaffIdx,
-            value: laborHours[peakStaffIdx],
-            hour: hours[peakStaffIdx],
-          },
-          avgStaff,
-        };
-      }
-
-      function renderInsightCards(insights) {
-        const el = document.getElementById("insightCards");
-        el.innerHTML = "";
-        if (!insights) return;
-
-        const items = [
-          [
-            "Peak Sales Hour",
-            fmtMoney(insights.peakSales.value),
-            localHourLabel(insights.peakSales.hour.startTime),
-          ],
-          [
-            "Peak Staffing Hour",
-            "~" + estStaff(insights.peakStaff.value) + " people",
-            localHourLabel(insights.peakStaff.hour.startTime),
-          ],
-          [
-            "Avg Staff (active hrs)",
-            "~" + Math.round(insights.avgStaff) + " people",
-            insights.avgStaff.toFixed(2) + " avg labor-hrs/hr",
-          ],
-        ];
-        for (const [label, value, sub] of items) {
-          const div = document.createElement("div");
-          div.className = "card";
-          div.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div>`;
-          el.appendChild(div);
-        }
-      }
-
-      function render(darData) {
-        currentHours = darData.dar;
-
-        const totals = fieldMap(darData.totals);
-        const cardsEl = document.getElementById("cards");
-        cardsEl.innerHTML = "";
-        for (const [code, label, fmt] of CARD_FIELDS) {
-          const div = document.createElement("div");
-          div.className = "card";
-          div.innerHTML = `<div class="label">${label}</div><div class="value">${totals[code] != null ? fmt(totals[code]) : "—"}</div>`;
-          cardsEl.appendChild(div);
-        }
-
-        renderInsightCards(computeInsights(darData));
-        currentShiftSummary = shiftConfig ? computeShiftSummary(darData, shiftConfig) : null;
-        renderShiftCards(currentShiftSummary, shiftConfig);
-        renderGlancePanel();
-        renderCutSuggestions();
-
-        const hours = darData.dar.map((h) => localHourLabel(h.startTime));
-        const salesSeries = darData.dar.map((h) =>
-          Number(fieldMap(h.data).net_sales || 0),
-        );
-        const laborPctSeries = darData.dar.map((h) =>
-          Number(fieldMap(h.data).labour_percentage_of_sales || 0),
-        );
-        // Goal varies by shift across the day, so this is a per-hour lookup, not one flat line.
-        // Null (gap) for hours whose shift has no goal configured yet.
-        const goalSeries = shiftConfig
-          ? darData.dar.map((h) => {
-              const key = classifyShift(
-                localHour24(h.startTime, shiftConfig.utcOffsetHours),
-                shiftConfig,
-              );
-              return shiftConfig.goals[key];
-            })
-          : [];
-
-        const ctx = document.getElementById("hourlyChart");
-        const style = getComputedStyle(document.documentElement);
-        const accent = style.getPropertyValue("--accent").trim();
-        const accent2 = style.getPropertyValue("--accent-2").trim();
-        const gridColor = style.getPropertyValue("--border").trim();
-        const textColor = style.getPropertyValue("--text").trim();
-        const muted = style.getPropertyValue("--muted").trim();
-
-        if (chart) chart.destroy();
-        chart = new Chart(ctx, {
-          data: {
-            labels: hours,
-            datasets: [
-              {
-                type: "bar",
-                label: "Net Sales ($)",
-                data: salesSeries,
-                backgroundColor: accent,
-                yAxisID: "y",
-                borderRadius: 4,
-              },
-              {
-                type: "line",
-                label: "Labor % of Sales",
-                data: laborPctSeries,
-                borderColor: accent2,
-                backgroundColor: accent2,
-                yAxisID: "y1",
-                tension: 0.25,
-                pointRadius: 3,
-              },
-              {
-                type: "line",
-                label: "Labor Goal",
-                data: goalSeries,
-                borderColor: muted,
-                borderDash: [6, 4],
-                borderWidth: 1.5,
-                pointRadius: 0,
-                yAxisID: "y1",
-                spanGaps: false,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            interaction: { mode: "index", intersect: false },
-            onClick: (evt, elements) => {
-              if (elements.length) openModal(currentHours[elements[0].index]);
-            },
-            scales: {
-              x: { ticks: { color: textColor }, grid: { color: gridColor } },
-              y: {
-                position: "left",
-                ticks: { color: textColor, callback: (v) => "$" + v },
-                grid: { color: gridColor },
-                title: { display: true, text: "Net Sales", color: textColor },
-              },
-              y1: {
-                position: "right",
-                ticks: { color: textColor, callback: (v) => v + "%" },
-                grid: { display: false },
-                title: {
-                  display: true,
-                  text: "Labor % of Sales",
-                  color: textColor,
-                },
-              },
-            },
-            plugins: {
-              legend: { labels: { color: textColor } },
-            },
-          },
-        });
-
-        renderHourlyTable(darData.dar);
-      }
-
-      function renderHourlyTable(hours) {
-        const tbody = document.querySelector("#hourlyTable tbody");
-        tbody.innerHTML = "";
-        hours.forEach((hour) => {
-          const f = fieldMap(hour.data);
-          const scheduledCount = currentRoster.length
-            ? staffScheduledDuring(hour.startTime, currentRoster).length
-            : null;
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
+function renderHourlyTable(hours) {
+  const tbody = document.querySelector("#hourlyTable tbody");
+  tbody.innerHTML = "";
+  hours.forEach(hour => {
+    const f = fieldMap(hour.data);
+    const scheduledCount = currentRoster.length ? staffScheduledDuring(hour.startTime, currentRoster).length : null;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
       <td>${localHourLabel(hour.startTime)}</td>
       <td>$${Number(f.net_sales || 0).toFixed(2)}</td>
       <td>${f.transactions || 0}</td>
@@ -1069,165 +555,136 @@
       <td>${Number(f.labour_percentage_of_sales || 0).toFixed(1)}%</td>
       <td>$${Number(f.sales_per_punch_hour || 0).toFixed(2)}</td>
     `;
-          tr.addEventListener("click", () => openModal(hour));
-          tbody.appendChild(tr);
-        });
-      }
+    tr.addEventListener("click", () => openModal(hour));
+    tbody.appendChild(tr);
+  });
+}
 
-      function openModal(hour) {
-        const f = fieldMap(hour.data);
-        document.getElementById("modalTitle").textContent =
-          localHourLabel(hour.startTime) + " breakdown";
+function openModal(hour) {
+  const f = fieldMap(hour.data);
+  document.getElementById("modalTitle").textContent = localHourLabel(hour.startTime) + " breakdown";
 
-        const noteEl = document.getElementById("modalNote");
-        noteEl.innerHTML = hour.missingActuals
-          ? `<div class="modal-note">Actuals not yet finalized for this hour - numbers may still change.</div>`
-          : "";
+  const noteEl = document.getElementById("modalNote");
+  noteEl.innerHTML = hour.missingActuals
+    ? `<div class="modal-note">Actuals not yet finalized for this hour - numbers may still change.</div>`
+    : "";
 
-        const bodyEl = document.getElementById("modalBody");
-        bodyEl.innerHTML = "";
-        for (const group of MODAL_FIELD_GROUPS) {
-          const section = document.createElement("section");
-          const dl = document.createElement("dl");
-          for (const [code, label, fmt] of group.fields) {
-            const raw = code === "__est_staff" ? null : f[code];
-            if (code !== "__est_staff" && raw == null) continue;
-            const dt = document.createElement("dt");
-            dt.textContent = label;
-            const dd = document.createElement("dd");
-            dd.textContent = fmt(raw, f);
-            dl.appendChild(dt);
-            dl.appendChild(dd);
-          }
-          if (dl.children.length) {
-            section.innerHTML = `<h3>${group.title}</h3>`;
-            section.appendChild(dl);
-            bodyEl.appendChild(section);
-          }
-        }
+  const bodyEl = document.getElementById("modalBody");
+  bodyEl.innerHTML = "";
+  for (const group of MODAL_FIELD_GROUPS) {
+    const section = document.createElement("section");
+    const dl = document.createElement("dl");
+    for (const [code, label, fmt] of group.fields) {
+      const raw = code === "__est_staff" ? null : f[code];
+      if (code !== "__est_staff" && raw == null) continue;
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = fmt(raw, f);
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    }
+    if (dl.children.length) {
+      section.innerHTML = `<h3>${group.title}</h3>`;
+      section.appendChild(dl);
+      bodyEl.appendChild(section);
+    }
+  }
 
-        if (currentRoster.length) {
-          const scheduled = staffScheduledDuring(hour.startTime, currentRoster)
-            .slice()
-            .sort((a, b) => (b.isManager ? 1 : 0) - (a.isManager ? 1 : 0));
-          const section = document.createElement("section");
-          section.innerHTML = `<h3>Scheduled This Hour (${scheduled.length})</h3>`;
-          if (scheduled.length) {
-            const ul = document.createElement("ul");
-            ul.className = "roster-list";
-            ul.innerHTML = scheduled
-              .map(
-                (s) => `
+  if (currentRoster.length) {
+    const scheduled = staffScheduledDuring(hour.startTime, currentRoster)
+      .slice()
+      .sort((a, b) => (b.isManager ? 1 : 0) - (a.isManager ? 1 : 0));
+    const section = document.createElement("section");
+    section.innerHTML = `<h3>Scheduled This Hour (${scheduled.length})</h3>`;
+    if (scheduled.length) {
+      const ul = document.createElement("ul");
+      ul.className = "roster-list";
+      ul.innerHTML = scheduled.map(s => `
         <li>
           <span>${s.name}${staffTag(s, shiftConfig)}</span>
           <span class="roster-role">${s.roles.slice(0, 2).join(", ") || "-"}</span>
-        </li>`,
-              )
-              .join("");
-            section.appendChild(ul);
-          } else {
-            section.innerHTML += `<div class="roster-empty">Nobody scheduled this hour</div>`;
-          }
-          bodyEl.appendChild(section);
-        }
+        </li>`).join("");
+      section.appendChild(ul);
+    } else {
+      section.innerHTML += `<div class="roster-empty">Nobody scheduled this hour</div>`;
+    }
+    bodyEl.appendChild(section);
+  }
 
-        document.getElementById("modalOverlay").classList.add("open");
-      }
+  document.getElementById("modalOverlay").classList.add("open");
+}
 
-      function closeModal() {
-        document.getElementById("modalOverlay").classList.remove("open");
-      }
+function closeModal() {
+  document.getElementById("modalOverlay").classList.remove("open");
+}
 
-      document
-        .getElementById("modalClose")
-        .addEventListener("click", closeModal);
-      document.getElementById("modalOverlay").addEventListener("click", (e) => {
-        if (e.target.id === "modalOverlay") closeModal();
-      });
-      document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") closeModal();
-      });
+document.getElementById("modalClose").addEventListener("click", closeModal);
+document.getElementById("modalOverlay").addEventListener("click", e => {
+  if (e.target.id === "modalOverlay") closeModal();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeModal();
+});
 
-      let teamNotes = [];
-      let editingPerson = null; // a name currently being edited, or "__new__" for the add-person form
+let teamNotes = [];
+let editingPerson = null; // a name currently being edited, or "__new__" for the add-person form
 
-      const RAPPORT_OPTIONS = [
-        ["", "—"],
-        ["like", "👍 Like"],
-        ["neutral", "😐 Neutral"],
-        ["dislike", "👎 Dislike"],
-      ];
-      function rapportLabel(v) {
-        return (RAPPORT_OPTIONS.find(([val]) => val === v) ||
-          RAPPORT_OPTIONS[0])[1];
-      }
+const RAPPORT_OPTIONS = [
+  ["", "—"],
+  ["like", "👍 Like"],
+  ["neutral", "😐 Neutral"],
+  ["dislike", "👎 Dislike"],
+];
+function rapportLabel(v) {
+  return (RAPPORT_OPTIONS.find(([val]) => val === v) || RAPPORT_OPTIONS[0])[1];
+}
 
-      async function loadTeamNotes() {
-        const errorEl = document.getElementById("teamNotesError");
-        errorEl.style.display = "none";
-        try {
-          const resp = await fetch("/api/team-notes");
-          teamNotes = await resp.json();
-        } catch (e) {
-          errorEl.textContent = "Couldn't load team notes: " + e;
-          errorEl.style.display = "block";
-          return;
-        }
-        renderTeamNotes();
-        renderGlancePanel();
-        renderCutSuggestions();
-      }
+async function loadTeamNotes() {
+  const errorEl = document.getElementById("teamNotesError");
+  errorEl.style.display = "none";
+  try {
+    const resp = await fetch("/api/team-notes");
+    teamNotes = await resp.json();
+  } catch (e) {
+    errorEl.textContent = "Couldn't load team notes: " + e;
+    errorEl.style.display = "block";
+    return;
+  }
+  renderTeamNotes();
+  renderGlancePanel();
+}
 
-      function renderTeamNotes() {
-        const el = document.getElementById("teamNotesList");
-        el.innerHTML = "";
+function renderTeamNotes() {
+  const el = document.getElementById("teamNotesList");
+  el.innerHTML = "";
 
-        const sorted = teamNotes
-          .slice()
-          .sort((a, b) => a.name.localeCompare(b.name));
-        for (const person of sorted) {
-          el.appendChild(
-            editingPerson === person.name
-              ? buildPersonForm(person)
-              : buildPersonCard(person),
-          );
-        }
-        if (editingPerson === "__new__") {
-          el.appendChild(buildPersonForm(null));
-        }
-      }
+  const sorted = teamNotes.slice().sort((a, b) => a.name.localeCompare(b.name));
+  for (const person of sorted) {
+    el.appendChild(editingPerson === person.name ? buildPersonForm(person) : buildPersonCard(person));
+  }
+  if (editingPerson === "__new__") {
+    el.appendChild(buildPersonForm(null));
+  }
+}
 
-      function escapeHtml(s) {
-        const div = document.createElement("div");
-        div.textContent = s ?? "";
-        return div.innerHTML;
-      }
-
-      function buildPersonCard(p) {
-        const div = document.createElement("div");
-        div.className =
-          "team-note-card" + (p.rapport ? ` rapport-${p.rapport}` : "");
-        const cautionHtml = p.caution
-          ? `<div class="tn-field tn-caution">⚠ Caution: ${escapeHtml(p.cautionNote) || "(no detail)"}</div>`
-          : "";
-        const history = p.history || [];
-        const lastEdit = history.length ? history[history.length - 1] : null;
-        const historyHtml = history.length
-          ? `<div class="tn-history">
+function buildPersonCard(p) {
+  const div = document.createElement("div");
+  div.className = "team-note-card" + (p.rapport ? ` rapport-${p.rapport}` : "");
+  const cautionHtml = p.caution
+    ? `<div class="tn-field tn-caution">⚠ Caution: ${escapeHtml(p.cautionNote) || "(no detail)"}</div>`
+    : "";
+  const history = p.history || [];
+  const lastEdit = history.length ? history[history.length - 1] : null;
+  const historyHtml = history.length
+    ? `<div class="tn-history">
         <button class="tn-history-toggle">History (${history.length})</button>
         <ul class="tn-history-list" style="display:none;">
-          ${history
-            .slice()
-            .reverse()
-            .map(
-              (h) =>
-                `<li><strong>${escapeHtml(h.author)}</strong> - ${escapeHtml(h.summary)} <span class="time">${new Date(h.timestamp).toLocaleString()}</span></li>`,
-            )
-            .join("")}
+          ${history.slice().reverse().map(h => `<li><strong>${escapeHtml(h.author)}</strong> - ${escapeHtml(h.summary)} <span class="time">${new Date(h.timestamp).toLocaleString()}</span></li>`).join("")}
         </ul>
       </div>`
-          : "";
-        div.innerHTML = `
+    : "";
+  div.innerHTML = `
     <div class="tn-header">
       <span class="tn-name">${escapeHtml(p.name)}${p.isMinor ? ' <span class="tn-minor-badge">MINOR</span>' : ""}</span>
       <span class="tn-rapport">${rapportLabel(p.rapport)}</span>
@@ -1244,32 +701,26 @@
       <button class="tn-delete">Delete</button>
     </div>
   `;
-        div.querySelector(".tn-edit").addEventListener("click", () => {
-          editingPerson = p.name;
-          renderTeamNotes();
-        });
-        div.querySelector(".tn-delete").addEventListener("click", async () => {
-          if (!confirm(`Remove notes for ${p.name}?`)) return;
-          await fetch(`/api/team-notes/${encodeURIComponent(p.name)}`, {
-            method: "DELETE",
-          });
-          loadTeamNotes();
-        });
-        const historyToggle = div.querySelector(".tn-history-toggle");
-        if (historyToggle) {
-          historyToggle.addEventListener("click", () => {
-            const list = div.querySelector(".tn-history-list");
-            list.style.display =
-              list.style.display === "none" ? "block" : "none";
-          });
-        }
-        return div;
-      }
+  div.querySelector(".tn-edit").addEventListener("click", () => { editingPerson = p.name; renderTeamNotes(); });
+  div.querySelector(".tn-delete").addEventListener("click", async () => {
+    if (!confirm(`Remove notes for ${p.name}?`)) return;
+    await fetch(`/api/team-notes/${encodeURIComponent(p.name)}`, { method: "DELETE" });
+    loadTeamNotes();
+  });
+  const historyToggle = div.querySelector(".tn-history-toggle");
+  if (historyToggle) {
+    historyToggle.addEventListener("click", () => {
+      const list = div.querySelector(".tn-history-list");
+      list.style.display = list.style.display === "none" ? "block" : "none";
+    });
+  }
+  return div;
+}
 
-      function buildPersonForm(p) {
-        const div = document.createElement("div");
-        div.className = "team-note-card editing";
-        div.innerHTML = `
+function buildPersonForm(p) {
+  const div = document.createElement("div");
+  div.className = "team-note-card editing";
+  div.innerHTML = `
     <label>Name <input type="text" class="tn-input-name" value="${p ? escapeHtml(p.name) : ""}" ${p ? "readonly" : ""} placeholder="Full name"></label>
     <label class="tn-checkbox-label"><input type="checkbox" class="tn-input-minor" ${p && p.isMinor ? "checked" : ""}> Minor (needs legally required break)</label>
     <label>Rapport
@@ -1288,113 +739,53 @@
       <button class="tn-cancel">Cancel</button>
     </div>
   `;
-        div.querySelector(".tn-save").addEventListener("click", async () => {
-          const name = div.querySelector(".tn-input-name").value.trim();
-          if (!name) {
-            alert("Name is required");
-            return;
-          }
-          const body = {
-            name,
-            rapport: div.querySelector(".tn-input-rapport").value,
-            strengths: div.querySelector(".tn-input-strengths").value.trim(),
-            limitations: div
-              .querySelector(".tn-input-limitations")
-              .value.trim(),
-            skillNotes: div.querySelector(".tn-input-skillnotes").value.trim(),
-            caution: div.querySelector(".tn-input-caution").checked,
-            cautionNote: div
-              .querySelector(".tn-input-cautionnote")
-              .value.trim(),
-            notes: div.querySelector(".tn-input-notes").value.trim(),
-            isMinor: div.querySelector(".tn-input-minor").checked,
-            editorName: document.getElementById("editorNameInput").value.trim(),
-          };
-          await fetch("/api/team-notes", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          editingPerson = null;
-          loadTeamNotes();
-        });
-        div.querySelector(".tn-cancel").addEventListener("click", () => {
-          editingPerson = null;
-          renderTeamNotes();
-        });
-        return div;
-      }
+  div.querySelector(".tn-save").addEventListener("click", async () => {
+    const name = div.querySelector(".tn-input-name").value.trim();
+    if (!name) { alert("Name is required"); return; }
+    const body = {
+      name,
+      rapport: div.querySelector(".tn-input-rapport").value,
+      strengths: div.querySelector(".tn-input-strengths").value.trim(),
+      limitations: div.querySelector(".tn-input-limitations").value.trim(),
+      skillNotes: div.querySelector(".tn-input-skillnotes").value.trim(),
+      caution: div.querySelector(".tn-input-caution").checked,
+      cautionNote: div.querySelector(".tn-input-cautionnote").value.trim(),
+      notes: div.querySelector(".tn-input-notes").value.trim(),
+      isMinor: div.querySelector(".tn-input-minor").checked,
+      editorName: document.getElementById("editorNameInput").value.trim(),
+    };
+    await fetch("/api/team-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    editingPerson = null;
+    loadTeamNotes();
+  });
+  div.querySelector(".tn-cancel").addEventListener("click", () => { editingPerson = null; renderTeamNotes(); });
+  return div;
+}
 
-      document.getElementById("addPersonBtn").addEventListener("click", () => {
-        editingPerson = "__new__";
-        renderTeamNotes();
-      });
+document.getElementById("addPersonBtn").addEventListener("click", () => { editingPerson = "__new__"; renderTeamNotes(); });
 
-      const editorNameInput = document.getElementById("editorNameInput");
-      editorNameInput.value = localStorage.getItem("lifelenzEditorName") || "";
-      editorNameInput.addEventListener("change", () => {
-        localStorage.setItem(
-          "lifelenzEditorName",
-          editorNameInput.value.trim(),
-        );
-      });
+const editorNameInput = document.getElementById("editorNameInput");
+editorNameInput.value = localStorage.getItem("lifelenzEditorName") || "";
+editorNameInput.addEventListener("change", () => {
+  localStorage.setItem("lifelenzEditorName", editorNameInput.value.trim());
+});
 
-      const datePicker = document.getElementById("datePicker");
-      const today = new Date();
-      datePicker.value = today.toISOString().slice(0, 10);
+const datePicker = document.getElementById("datePicker");
+const today = new Date();
+datePicker.value = today.toISOString().slice(0, 10);
 
-      document.getElementById("refreshBtn").addEventListener("click", () => {
-        loadData(datePicker.value);
-        loadRoster(datePicker.value);
-        loadShiftEvents(datePicker.value);
-      });
-      datePicker.addEventListener("change", () => {
-        loadData(datePicker.value);
-        loadRoster(datePicker.value);
-        loadShiftEvents(datePicker.value);
-      });
+document.getElementById("refreshBtn").addEventListener("click", () => { loadData(datePicker.value); loadRoster(datePicker.value); });
+datePicker.addEventListener("change", () => { loadData(datePicker.value); loadRoster(datePicker.value); });
 
-      document.getElementById("logEventBtn").addEventListener("click", async () => {
-        const name = document.getElementById("eventNameInput").value.trim();
-        if (!name) {
-          alert("Name is required");
-          return;
-        }
-        await shiftConfigPromise;
-        const dateStr = datePicker.value;
-        const timeInput = document.getElementById("eventTimeInput").value;
-        const timeIso = timeInput
-          ? storeLocalTimeToISO(dateStr, timeInput, shiftConfig)
-          : new Date().toISOString();
-        const body = {
-          date: dateStr,
-          employeeName: name,
-          eventType: document.getElementById("eventTypeInput").value,
-          time: timeIso,
-          note: document.getElementById("eventNoteInput").value.trim(),
-          editorName: localStorage.getItem("lifelenzEditorName") || "",
-        };
-        await fetch("/api/shift-events", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        document.getElementById("eventNameInput").value = "";
-        document.getElementById("eventNoteInput").value = "";
-        loadShiftEvents(dateStr);
-      });
+loadData(datePicker.value);
+loadRoster(datePicker.value);
+loadTeamNotes();
+setInterval(() => { loadData(datePicker.value); loadRoster(datePicker.value); }, 5 * 60 * 1000);
+</script>
 
-      loadData(datePicker.value);
-      loadRoster(datePicker.value);
-      loadShiftEvents(datePicker.value);
-      loadTeamNotes();
-      setInterval(
-        () => {
-          loadData(datePicker.value);
-          loadRoster(datePicker.value);
-        },
-        5 * 60 * 1000,
-      );
-    </script>
-  </body>
+</body>
 </html>

@@ -72,6 +72,11 @@ def trends_page():
     return send_from_directory(app.static_folder, "trends.html")
 
 
+@app.route("/ops")
+def ops_page():
+    return send_from_directory(app.static_folder, "ops.html")
+
+
 @app.route("/api/shift-config")
 def api_shift_config():
     return jsonify({
@@ -252,7 +257,9 @@ def api_team_notes_delete(name):
 # source of truth once it settles) - it's a record of *why* a day's numbers look the way they
 # do, kept for explaining anomalies later and for informing the cut-suggestion reasoning.
 SHIFT_EVENTS_PATH = os.path.join(os.path.dirname(__file__), "shift_events.json")
-EVENT_TYPES = {"added", "subbed", "cut", "break_start", "break_end"}
+# "covered" used to be called "subbed" - old events with that value are still valid to
+# read, just not offered as a choice for new ones.
+EVENT_TYPES = {"added", "covered", "cut", "break_start", "break_end"}
 
 
 def _load_shift_events() -> dict:
