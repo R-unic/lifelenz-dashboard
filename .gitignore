@@ -1,5 +1,7 @@
 .env
+team_notes.json
 __pycache__/
 *.pyc
+*.log
 .venv/
 venv/

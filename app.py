@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -26,6 +27,10 @@ NIGHT_START_HOUR = 16
 def _optional_float(key: str) -> float | None:
     v = os.environ.get(key)
     return float(v) if v not in (None, "") else None
+
+
+def _name_list(key: str) -> list[str]:
+    return [n.strip() for n in os.environ.get(key, "").split(",") if n.strip()]
 
 
 def business_day_window(date_str: str | None) -> tuple[str, str]:
@@ -75,6 +80,9 @@ def api_shift_config():
             "mid": _optional_float("LIFELENZ_MID_GOAL_PCT"),
             "night": _optional_float("LIFELENZ_NIGHT_GOAL_PCT"),
         },
+        "managersInTraining": _name_list("LIFELENZ_MANAGERS_IN_TRAINING"),
+        "generalManagers": _name_list("LIFELENZ_GENERAL_MANAGERS"),
+        "manualManagers": _name_list("LIFELENZ_MANUAL_MANAGERS"),
     })
 
 
@@ -126,6 +134,13 @@ def api_roster():
     roster = []
     for s in shifts:
         emp = employments_by_id.get(s["assignedEmploymentId"])
+        # trainedRoles is the employee's whole recorded skill/permission catalog (not this
+        # shift's assignment) - LifeLenz mixes real stations (GRILL, WINDOW) with admin/
+        # program tags (HIRING, SCHEDULES) in the same list, so this is a rough breadth
+        # signal, not a literal reading of which physical stations someone can run.
+        trained_roles = sorted({
+            er["businessRole"]["businessRoleName"] for er in (emp["employmentRoles"] if emp else [])
+        })
         roster.append({
             "shiftId": s["id"],
             "employmentId": s["assignedEmploymentId"],
@@ -135,9 +150,79 @@ def api_roster():
             "shiftEndTime": s["shiftEndTime"],
             "publishedStatus": s["publishedStatus"],
             "roles": [pr["businessRole"]["businessRoleName"] for pr in s["plannedRoles"]],
+            "trainedRoles": trained_roles,
+            "trainedRoleCount": len(trained_roles),
         })
     return jsonify({"shifts": roster})
 
 
+# Private, local-only notes about your own night-shift crew - never sent to LifeLenz or
+# anywhere else. Keep team_notes.json out of git (see .gitignore) since it holds
+# subjective opinions about real coworkers.
+TEAM_NOTES_PATH = os.path.join(os.path.dirname(__file__), "team_notes.json")
+
+
+def _load_team_notes() -> dict:
+    if not os.path.exists(TEAM_NOTES_PATH):
+        return {}
+    with open(TEAM_NOTES_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_team_notes(notes: dict) -> None:
+    with open(TEAM_NOTES_PATH, "w", encoding="utf-8") as f:
+        json.dump(notes, f, indent=2)
+
+
+@app.route("/api/team-notes", methods=["GET"])
+def api_team_notes_list():
+    return jsonify(list(_load_team_notes().values()))
+
+
+@app.route("/api/team-notes", methods=["POST"])
+def api_team_notes_upsert():
+    payload = request.get_json(force=True)
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    notes = _load_team_notes()
+    notes[name] = {
+        "name": name,
+        "rapport": payload.get("rapport", ""),
+        "strengths": payload.get("strengths", ""),
+        "limitations": payload.get("limitations", ""),
+        "skillNotes": payload.get("skillNotes", ""),
+        "caution": bool(payload.get("caution", False)),
+        "cautionNote": payload.get("cautionNote", ""),
+        "notes": payload.get("notes", ""),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_team_notes(notes)
+    return jsonify(notes[name])
+
+
+@app.route("/api/team-notes/<name>", methods=["DELETE"])
+def api_team_notes_delete(name):
+    notes = _load_team_notes()
+    notes.pop(name, None)
+    _save_team_notes(notes)
+    return jsonify({"ok": True})
+
+
 if __name__ == "__main__":
-    app.run(port=5151, debug=True)
+    if os.environ.get("LIFELENZ_DEV") == "1":
+        # Flask's dev server + reloader - handy while actively editing, but the reloader
+        # runs a background file-watcher thread that has no reason to exist for
+        # leave-it-running use.
+        app.run(port=5151, debug=True)
+    else:
+        # waitress: a small fixed thread pool that blocks waiting for requests rather than
+        # polling - idle CPU is ~0% and memory footprint is tens of MB, safe to leave running
+        # indefinitely alongside anything else (games included). Binds 0.0.0.0 so it's
+        # reachable over Tailscale (and the LAN) at this machine's Tailscale IP, not just
+        # localhost.
+        from waitress import serve
+
+        print("Serving on http://0.0.0.0:5151 (reachable via localhost, LAN, and Tailscale)")
+        serve(app, host="0.0.0.0", port=5151, threads=4)

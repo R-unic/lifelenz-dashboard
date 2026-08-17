@@ -52,6 +52,9 @@ query GetEmployments($businessId: ID!, $scheduleId: ID!, $ids: [ID!]) {
       id
       computedName
       isManager
+      employmentRoles {
+        businessRole { businessRoleName }
+      }
     }
   }
 }
