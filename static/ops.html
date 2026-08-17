@@ -10,6 +10,11 @@
 
 <div class="page">
 
+<div id="opsLoadingOverlay" class="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading Night Ops&hellip; pulling live labor, roster, and time-clock data</div>
+</div>
+
 <header>
   <div class="header-left">
     <h1>Fruitport McDonald's - Night Ops</h1>
@@ -58,8 +63,8 @@
 <div class="section-header">
   <h3>Day-by-Day Log</h3>
   <span class="editor-name-wrap">
-    <input type="text" id="editorNameInput" placeholder="Editing as..." class="editor-name-input" />
-    <span id="editorNameHint" class="editor-name-hint" title="Auto-detected from your Tailscale identity - edit if this isn't you">via Tailscale</span>
+    <input type="text" id="editorNameInput" placeholder="Not on Tailscale" class="editor-name-input" readonly title="Attribution is automatic - connect over Tailscale to be identified" />
+    <span id="editorNameHint" class="editor-name-hint" title="Auto-detected from your Tailscale identity">via Tailscale</span>
   </span>
 </div>
 <p class="hint">Log staffing changes as they happen (added/covered/cut/breaks) - not a recalculation of LifeLenz's own numbers, just a record of why the day went the way it did. Newest first.</p>
@@ -72,12 +77,18 @@
     </label>
     <label class="day-log-field day-log-field-type">Event
       <select id="eventTypeInput">
-        <option value="added">➕ Added</option>
+        <option value="called_in">📞 Called In</option>
         <option value="covered">🔄 Covered</option>
         <option value="cut">✂️ Cut</option>
         <option value="break_start">☕ Break Start</option>
         <option value="break_end">▶️ Break End</option>
       </select>
+    </label>
+    <label class="day-log-field day-log-field-covered-for" id="coveredForField" hidden>Covered For
+      <input type="text" id="eventCoveredForInput" placeholder="Who they're covering" list="rosterNamesList" autocomplete="off" />
+    </label>
+    <label class="day-log-field day-log-field-until" id="coverUntilField" hidden>Covers Until <span class="day-log-field-hint">(optional, partial)</span>
+      <input type="time" id="eventCoverUntilInput" />
     </label>
     <label class="day-log-field day-log-field-time">Time <span class="day-log-field-hint">(blank = now)</span>
       <input type="time" id="eventTimeInput" />
@@ -100,10 +111,12 @@ function localHourLabel(isoStart) {
   return d.toLocaleTimeString([], { hour: "numeric", hour12: true });
 }
 
-// "covered" replaced "subbed" as the label, but old logged events still say "subbed" -
-// both map to the same display so history doesn't suddenly look broken.
+// "called_in" replaced "added" and "covered" replaced "subbed" as the labels, but old
+// logged events still say "added"/"subbed" - all map to the same display so history
+// doesn't suddenly look broken.
 const EVENT_TYPE_LABELS = {
-  added: "➕ Added",
+  called_in: "📞 Called In",
+  added: "📞 Called In",
   subbed: "🔄 Covered",
   covered: "🔄 Covered",
   cut: "✂️ Cut",
@@ -118,6 +131,7 @@ let currentRoster = [];
 let currentRosterDate = null;
 let teamNotes = [];
 let currentShiftEvents = [];
+let currentTimeClocks = [];
 let hourlyHistoryAvg = {};
 
 function latestActiveHour(hours) {
@@ -128,6 +142,147 @@ function latestActiveHour(hours) {
     return Number(f.net_sales || 0) > 0 || Number(f.actual_punch_hours || 0) > 0;
   });
   return withActivity.length ? withActivity[withActivity.length - 1] : hours[hours.length - 1];
+}
+
+// Reduces the day's LifeLenz roster + real time-clock punches + logged day-log events
+// into one effective shift window per person, so "who's actually on the floor" reflects
+// reality instead of just the published schedule. Priority order per person: a real punch
+// (from /api/time-clocks, the same data LifeLenz's own mobile app uses for "who's on the
+// clock") REPLACES the roster's guessed window outright rather than merging into it - a
+// real early clock-out must not get silently overwritten by a later scheduled end via a
+// naive min/max merge. Day-log events (cut/called_in/covered/break) then layer on top of
+// whichever base window applies, same as before. Simplifying assumption: each person still
+// gets ONE merged window rather than tracking multiple disjoint ones - modeling true gaps
+// (e.g. clocking fully out and back in for an unpaid break) would need a real scheduling
+// engine. A "cut" always wins over any later end for that person (they left, full stop) -
+// and a full-handoff "covered" (no untilTime given) cuts the covered person at the moment
+// of the handoff, same as an explicit cut event would.
+function computeEffectiveStaffing(roster, events, dateStr, cfg, atDate, timeClocks) {
+  const at = (atDate || new Date()).getTime();
+  const closeIso = storeLocalTimeToISO(dateStr, `${String(cfg.closeHour).padStart(2, "0")}:00`, cfg);
+  const findRoster = (name) => roster.find((s) => s.name.toLowerCase() === name.toLowerCase());
+  const punches = timeClocks || [];
+  const punchedNames = new Set(punches.map((c) => c.name.toLowerCase()));
+
+  const people = new Map();
+  function get(name, template) {
+    const key = name.toLowerCase();
+    if (!people.has(key)) {
+      people.set(key, {
+        name,
+        roles: template ? template.roles : [],
+        trainedRoleCount: template ? template.trainedRoleCount : null,
+        isManager: template ? template.isManager : false,
+        start: null,
+        end: null,
+        openEnded: false,
+        fromRealPunch: false,
+        cutAt: null,
+        calledIn: false,
+        coveringFor: null,
+        breaks: [],
+      });
+    }
+    return people.get(key);
+  }
+  function extend(p, startMs, endMs) {
+    p.start = p.start == null ? startMs : Math.min(p.start, startMs);
+    p.end = p.end == null ? endMs : Math.max(p.end, endMs);
+  }
+
+  // Roster seeds start/end only for people with no real punch yet (shift hasn't started,
+  // or punch data isn't available) - it always seeds the template (roles/isManager/count).
+  for (const s of roster) {
+    const p = get(s.name, s);
+    if (!punchedNames.has(s.name.toLowerCase())) {
+      extend(p, new Date(s.shiftStartTime).getTime(), new Date(s.shiftEndTime).getTime());
+    }
+  }
+
+  for (const c of punches) {
+    const rosterMatch = findRoster(c.name);
+    const p = get(c.name, rosterMatch);
+    if (!p.fromRealPunch) {
+      // First real punch for this person - discard any roster-seeded window instead of
+      // merging into it (see function comment).
+      p.start = null;
+      p.end = null;
+      p.fromRealPunch = true;
+    }
+    const clockInMs = new Date(c.clockIn).getTime();
+    const fallbackEnd = rosterMatch ? new Date(rosterMatch.shiftEndTime).getTime() : new Date(closeIso).getTime();
+    const clockOutMs = c.clockOut ? new Date(c.clockOut).getTime() : fallbackEnd;
+    extend(p, clockInMs, clockOutMs);
+    if (!c.clockOut) p.openEnded = true;
+    for (const b of c.breaks || []) {
+      p.breaks.push({ start: new Date(b.start).getTime(), end: b.end ? new Date(b.end).getTime() : null });
+    }
+  }
+
+  const sorted = events.slice().sort((a, b) => new Date(a.time) - new Date(b.time));
+  for (const ev of sorted) {
+    const evMs = new Date(ev.time).getTime();
+    if (ev.eventType === "cut") {
+      const p = get(ev.employeeName);
+      p.cutAt = p.cutAt == null ? evMs : Math.min(p.cutAt, evMs);
+    } else if (ev.eventType === "called_in" || ev.eventType === "added") {
+      const rosterMatch = findRoster(ev.employeeName);
+      const p = get(ev.employeeName, rosterMatch);
+      p.calledIn = true;
+      extend(p, evMs, rosterMatch ? new Date(rosterMatch.shiftEndTime).getTime() : new Date(closeIso).getTime());
+    } else if (ev.eventType === "covered" || ev.eventType === "subbed") {
+      const rosterSelf = findRoster(ev.employeeName);
+      const p = get(ev.employeeName, rosterSelf);
+      const target = ev.coveredFor ? findRoster(ev.coveredFor) : null;
+      const endMs = ev.untilTime
+        ? new Date(ev.untilTime).getTime()
+        : target
+          ? new Date(target.shiftEndTime).getTime()
+          : new Date(closeIso).getTime();
+      p.coveringFor = ev.coveredFor || null;
+      extend(p, evMs, endMs);
+      if (!ev.untilTime && ev.coveredFor) {
+        const t = get(ev.coveredFor, target);
+        t.cutAt = t.cutAt == null ? evMs : Math.min(t.cutAt, evMs);
+      }
+    } else if (ev.eventType === "break_start") {
+      get(ev.employeeName).breaks.push({ start: evMs, end: null });
+    } else if (ev.eventType === "break_end") {
+      const p = get(ev.employeeName);
+      const open = p.breaks
+        .slice()
+        .reverse()
+        .find((b) => b.end == null);
+      if (open) open.end = evMs;
+    }
+  }
+
+  return [...people.values()]
+    .filter((p) => p.start != null)
+    .map((p) => {
+      const cutBound = p.cutAt != null ? p.cutAt : Infinity;
+      const clockCheckEnd = p.openEnded ? Infinity : p.end;
+      const displayEnd = Math.min(p.end, cutBound);
+      return {
+        name: p.name,
+        roles: p.roles,
+        trainedRoleCount: p.trainedRoleCount,
+        isManager: p.isManager,
+        shiftStartTime: new Date(p.start).toISOString(),
+        shiftEndTime: new Date(displayEnd).toISOString(),
+        cut: p.cutAt != null,
+        calledIn: p.calledIn,
+        coveringFor: p.coveringFor,
+        openEnded: p.openEnded && p.cutAt == null,
+        fromRealPunch: p.fromRealPunch,
+        onClockNow: p.start <= at && at < Math.min(clockCheckEnd, cutBound),
+        onBreakNow: p.breaks.some((b) => b.start <= at && (b.end == null || at < b.end)),
+        breaks: p.breaks.map((b) => ({
+          start: new Date(b.start).toISOString(),
+          end: b.end != null ? new Date(b.end).toISOString() : null,
+        })),
+      };
+    });
 }
 
 function computeRoleCoverage(people) {
@@ -214,14 +369,39 @@ function renderLaborStats(hours) {
     : `<li class="roster-empty">No hours over goal today</li>`;
 }
 
-function renderOutsideHours() {
+// On floor right now vs LifeLenz's original schedule - folds in cuts/call-ins/covers
+// logged via the Day-by-Day Log so this doesn't just repeat the roster count when the
+// day's actually gone off-script.
+function renderStaffingSnapshot(effective, rosterCount) {
+  const el = document.getElementById("laborStatsCards");
+  const onFloor = effective.filter((p) => p.onClockNow && !p.onBreakNow).length;
+  const onBreak = effective.filter((p) => p.onClockNow && p.onBreakNow).length;
+  const calledIn = effective.filter((p) => p.onClockNow && p.calledIn).length;
+  const cutToday = effective.filter((p) => p.cut).length;
+  const parts = [];
+  if (onBreak) parts.push(`${onBreak} on break`);
+  if (calledIn) parts.push(`${calledIn} called in`);
+  if (cutToday) parts.push(`${cutToday} cut today`);
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML = `
+    <div class="label">On Floor Right Now</div>
+    <div class="value">${onFloor}</div>
+    <div class="sub">vs ~${rosterCount} scheduled${parts.length ? " &middot; " + parts.join(", ") : ""}</div>
+  `;
+  el.appendChild(div);
+}
+
+// Outside-hours check runs against the day-log-adjusted effective windows, not just the
+// raw roster - a called-in addition's actual start (or a covering person's) can land
+// outside normal hours even when nobody with that name was ever on the published schedule.
+function renderOutsideHours(effective) {
   const el = document.getElementById("outsideHoursList");
-  if (!shiftConfig || !currentRoster.length) {
+  if (!shiftConfig || !effective.length) {
     el.innerHTML = "";
     return;
   }
-  const peopleToday = [...new Map(currentRoster.map((s) => [s.name.toLowerCase(), s])).values()];
-  const flagged = outsideHoursWarnings(peopleToday, shiftConfig);
+  const flagged = outsideHoursWarnings(effective, shiftConfig);
   el.innerHTML = flagged.length
     ? flagged
         .map(
@@ -235,9 +415,9 @@ function renderOutsideHours() {
 // Never suggests the floor manager, never suggests someone who's the only person
 // currently covering a role, always checks minor break status first (compliance, not
 // optimization), and never suggests cutting the crew below MIN_STAFF_FLOOR.
-function renderCutSuggestions() {
+function renderCutSuggestions(effective) {
   const el = document.getElementById("cutSuggestions");
-  if (!shiftConfig || !currentHours.length || !currentRoster.length) {
+  if (!shiftConfig || !currentHours.length || !effective.length) {
     el.innerHTML = "";
     return;
   }
@@ -249,29 +429,43 @@ function renderCutSuggestions() {
   const nightGoal = shiftConfig.goals.night;
   const overstaffed = (nightGoal != null && laborPctNow > nightGoal) || idealVariance > 0.5;
 
-  const peopleToday = [...new Map(currentRoster.map((s) => [s.name.toLowerCase(), s])).values()];
-  const nightPeople = peopleToday.filter((s) => worksIntoNightShift(s, currentRosterDate, shiftConfig));
+  const nightPeople = effective.filter((s) => worksIntoNightShift(s, currentRosterDate, shiftConfig));
 
   const now = new Date();
+  // Store policy (not a legal requirement this app enforces) - a minor's break should
+  // start no earlier than 6:30pm and no later than 7:30pm during a closing shift. This
+  // only shapes the wording/urgency below - whether a suggestion shows at all is gated
+  // strictly by the >5-hours-worked compliance trigger, not by the window.
+  const MINOR_BREAK_WINDOW_START_HOUR = 18.5;
+  const MINOR_BREAK_WINDOW_END_HOUR = 19.5;
+
   const minorAlerts = [];
   for (const s of nightPeople) {
     const note = teamNoteFor(teamNotes, s.name);
     if (!note?.isMinor) continue;
-    const shiftStart = new Date(s.shiftStartTime);
-    const shiftEnd = new Date(s.shiftEndTime);
-    if (now < shiftStart || now > shiftEnd) continue;
-    const hasBreak = currentShiftEvents.some(
-      (ev) => ev.eventType === "break_start" && ev.employeeName.toLowerCase() === s.name.toLowerCase(),
-    );
-    if (hasBreak) continue;
-    const hoursWorked = (now - shiftStart) / 3600000;
-    if (hoursWorked >= 5) minorAlerts.push({ shift: s, hoursWorked });
+    if (!s.onClockNow) continue;
+    if (s.onBreakNow) continue; // already stepped away, nothing to flag right now
+    if (s.breaks.length) continue; // already had a break logged today (real or manual) - don't ask again
+    const hoursWorked = (now - new Date(s.shiftStartTime).getTime()) / 3600000;
+    if (hoursWorked <= 5) continue;
+    const nowHour = localHourDecimal(now, shiftConfig.utcOffsetHours);
+    const urgency =
+      nowHour < MINOR_BREAK_WINDOW_START_HOUR ? "upcoming" : nowHour < MINOR_BREAK_WINDOW_END_HOUR ? "now" : "overdue";
+    minorAlerts.push({ shift: s, hoursWorked, urgency });
+  }
+
+  function minorAlertText(a) {
+    const name = `<strong>${escapeHtml(a.shift.name)}</strong>`;
+    const hrs = a.hoursWorked.toFixed(1);
+    if (a.urgency === "overdue") return `⏰ OVERDUE: ${name} (~${hrs}hrs) should have had a break by 7:30pm`;
+    if (a.urgency === "now") return `${name} (~${hrs}hrs) - give them a break now, within today's 6:30-7:30pm window`;
+    return `${name} (~${hrs}hrs) - plan their break for 6:30-7:30pm`;
   }
 
   const rows = [];
   if (minorAlerts.length) {
     rows.push(
-      `<div class="glance-row minor"><span class="icon">🧒</span><span>${minorAlerts.map((a) => `${escapeHtml(a.shift.name)} has worked ~${a.hoursWorked.toFixed(1)}hrs with no logged break`).join("; ")} - check your state's minor break requirement, this isn't legal advice</span></div>`,
+      `<div class="glance-row minor"><span class="icon">🧒</span><span>${minorAlerts.map(minorAlertText).join("; ")} - check your state's minor break requirement, this isn't legal advice</span></div>`,
     );
   }
 
@@ -287,10 +481,10 @@ function renderCutSuggestions() {
     nightPeople.filter((s) => matchFloorManagerShift(s, shiftConfig)?.shiftKey === "night").map((s) => s.name.toLowerCase()),
   );
 
-  // Actually clocked in right now - started already, not ended yet.
-  const stillOnShift = nightPeople.filter(
-    (s) => new Date(s.shiftStartTime) <= now && new Date(s.shiftEndTime) > now,
-  );
+  // Actually on the floor right now - onClockNow already accounts for cuts/call-ins/covers
+  // logged today, and excluding onBreakNow means someone mid-break isn't suggested for a
+  // cut they've effectively already taken.
+  const stillOnShift = nightPeople.filter((s) => s.onClockNow && !s.onBreakNow);
 
   if (stillOnShift.length <= MIN_STAFF_FLOOR) {
     rows.push(
@@ -372,10 +566,18 @@ function renderDayLog() {
   for (const ev of currentShiftEvents.slice().reverse()) {
     const li = document.createElement("li");
     const timeLabel = new Date(ev.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const coverLabel = ev.coveredFor
+      ? `covering for <strong>${escapeHtml(ev.coveredFor)}</strong>${
+          ev.untilTime
+            ? " until " + new Date(ev.untilTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+            : " (rest of shift)"
+        }`
+      : "";
     li.innerHTML = `
       <span class="day-log-entry">
         <span class="day-log-badge type-${ev.eventType}">${EVENT_TYPE_LABELS[ev.eventType] || ev.eventType}</span>
         <span class="day-log-who"><strong>${escapeHtml(ev.employeeName)}</strong> <span class="time">${timeLabel}</span></span>
+        ${coverLabel ? `<span class="day-log-covers">${coverLabel}</span>` : ""}
         ${ev.note ? `<span class="day-log-note">${escapeHtml(ev.note)}</span>` : ""}
         <span class="time day-log-author">logged by ${escapeHtml(ev.author)}</span>
       </span>
@@ -401,11 +603,22 @@ function storeLocalTimeToISO(dateStr, timeStr, cfg) {
 async function loadDay(dateStr) {
   const statusEl = document.getElementById("status");
   const errorEl = document.getElementById("error");
+  const overlayEl = document.getElementById("opsLoadingOverlay");
   errorEl.style.display = "none";
   statusEl.textContent = "Loading…";
+  showLoadingOverlay(overlayEl);
 
   const shiftEventsErrorEl = document.getElementById("shiftEventsError");
   shiftEventsErrorEl.style.display = "none";
+
+  // Real time-clock punches (same data LifeLenz's own mobile app shows for "who's on the
+  // clock") are a nice-to-have accuracy boost, not a requirement - this query was found via
+  // GraphQL introspection rather than documented, so it's fetched separately and swallowed
+  // on failure instead of blocking the rest of the page if LifeLenz ever changes it.
+  const timeClocksPromise = fetch(`/api/time-clocks?date=${dateStr}`)
+    .then((r) => r.json())
+    .then((body) => (body && !body.error ? body.punches || [] : []))
+    .catch(() => []);
 
   try {
     await shiftConfigPromise;
@@ -430,18 +643,25 @@ async function loadDay(dateStr) {
     currentRosterDate = dateStr;
     teamNotes = notesBody;
     currentShiftEvents = eventsBody.events || [];
+    currentTimeClocks = await timeClocksPromise;
   } catch (e) {
     statusEl.textContent = "";
+    hideLoadingOverlay(overlayEl);
     errorEl.textContent = "Couldn't load Night Ops data: " + e.message;
     errorEl.style.display = "block";
     return;
   }
 
+  const effective = computeEffectiveStaffing(currentRoster, currentShiftEvents, dateStr, shiftConfig, new Date(), currentTimeClocks);
+  const rosterCount = new Map(currentRoster.map((s) => [s.name.toLowerCase(), s])).size;
+
   renderLaborStats(currentHours);
-  renderOutsideHours();
-  renderCutSuggestions();
+  renderStaffingSnapshot(effective, rosterCount);
+  renderOutsideHours(effective);
+  renderCutSuggestions(effective);
   renderDayLog();
   statusEl.textContent = "Updated " + new Date().toLocaleTimeString();
+  hideLoadingOverlay(overlayEl);
 
   const namesList = document.getElementById("rosterNamesList");
   const uniqueNames = [...new Set(currentRoster.map((s) => s.name))].sort();
@@ -450,6 +670,24 @@ async function loadDay(dateStr) {
 
 const editorNameInput = document.getElementById("editorNameInput");
 wireEditorNameInput(editorNameInput, document.getElementById("editorNameHint"));
+
+const eventTypeInput = document.getElementById("eventTypeInput");
+const coveredForField = document.getElementById("coveredForField");
+const coverUntilField = document.getElementById("coverUntilField");
+const coveredForInput = document.getElementById("eventCoveredForInput");
+const coverUntilInput = document.getElementById("eventCoverUntilInput");
+
+function syncCoveredFields() {
+  const isCovered = eventTypeInput.value === "covered";
+  coveredForField.hidden = !isCovered;
+  coverUntilField.hidden = !isCovered;
+  if (!isCovered) {
+    coveredForInput.value = "";
+    coverUntilInput.value = "";
+  }
+}
+eventTypeInput.addEventListener("change", syncCoveredFields);
+syncCoveredFields();
 
 document.getElementById("dayLogForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -464,17 +702,30 @@ document.getElementById("dayLogForm").addEventListener("submit", async (e) => {
     nameInput.focus();
     return;
   }
+  const eventType = eventTypeInput.value;
+  const coveredFor = coveredForInput.value.trim();
+  if (eventType === "covered" && !coveredFor) {
+    formErrorEl.textContent = "Who was covered? is required for a Covered event.";
+    formErrorEl.style.display = "block";
+    coveredForInput.focus();
+    return;
+  }
   await shiftConfigPromise;
   const dateStr = datePicker.value;
   const timeInputEl = document.getElementById("eventTimeInput");
   const timeIso = timeInputEl.value ? storeLocalTimeToISO(dateStr, timeInputEl.value, shiftConfig) : new Date().toISOString();
+  const untilIso = eventType === "covered" && coverUntilInput.value
+    ? storeLocalTimeToISO(dateStr, coverUntilInput.value, shiftConfig)
+    : null;
   const body = {
     date: dateStr,
     employeeName: name,
-    eventType: document.getElementById("eventTypeInput").value,
+    eventType,
     time: timeIso,
     note: document.getElementById("eventNoteInput").value.trim(),
     editorName: editorNameInput.value.trim(),
+    coveredFor: eventType === "covered" ? coveredFor : null,
+    untilTime: untilIso,
   };
   await fetch("/api/shift-events", {
     method: "POST",
@@ -486,6 +737,8 @@ document.getElementById("dayLogForm").addEventListener("submit", async (e) => {
   // Reset time so the next entry defaults back to "now" instead of silently reusing
   // whatever time was typed in for this one.
   timeInputEl.value = "";
+  coveredForInput.value = "";
+  coverUntilInput.value = "";
   loadDay(dateStr);
   nameInput.focus();
 });

@@ -11,6 +11,11 @@
 
 <div class="page">
 
+<div id="trendsLoadingOverlay" class="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading trends&hellip; this can take up to 15 seconds for longer ranges</div>
+</div>
+
 <header>
   <div class="header-left">
     <h1>Fruitport McDonald's - Trends</h1>
@@ -91,11 +96,13 @@ async function loadTrends(days) {
   await shiftConfigPromise;
   const statusEl = document.getElementById("status");
   const errorEl = document.getElementById("trendError");
+  const overlayEl = document.getElementById("trendsLoadingOverlay");
   errorEl.style.display = "none";
   // The shift-history call pulls hourly data across the whole range, which LifeLenz can
-  // take 10+ seconds to compute for 30-42 days - without a status line the page just sits
-  // blank that whole time and looks broken.
+  // take 10+ seconds to compute for 30-32 days - a full splash screen makes that wait
+  // obviously "still working" instead of looking like a blank, broken page.
   statusEl.textContent = "Loading…";
+  showLoadingOverlay(overlayEl);
 
   let current, previous, shiftHistory;
   try {
@@ -106,6 +113,7 @@ async function loadTrends(days) {
     ]);
   } catch (e) {
     statusEl.textContent = "";
+    hideLoadingOverlay(overlayEl);
     errorEl.textContent = "Couldn't reach the local server for trends: " + e;
     errorEl.style.display = "block";
     return;
@@ -113,6 +121,7 @@ async function loadTrends(days) {
   const err = current.error || previous.error || shiftHistory.error;
   if (err) {
     statusEl.textContent = "";
+    hideLoadingOverlay(overlayEl);
     errorEl.textContent = "Trends request failed: " + err + " - try refreshing.";
     errorEl.style.display = "block";
     return;
@@ -122,6 +131,7 @@ async function loadTrends(days) {
   renderTrendChart(current);
   renderShiftComparison(shiftHistory);
   statusEl.textContent = "Updated " + new Date().toLocaleTimeString();
+  hideLoadingOverlay(overlayEl);
 }
 
 function renderTrendCards(current, previous) {

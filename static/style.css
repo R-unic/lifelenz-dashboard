@@ -126,7 +126,7 @@ table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-weight: 500; }
-.table-wrap { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; box-shadow: var(--shadow); }
+.table-wrap { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; box-shadow: var(--shadow); margin-bottom: 24px; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent); }
 
@@ -211,7 +211,17 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 .day-log-field-name { flex: 1.4; min-width: 140px; }
 .day-log-field-note { flex: 2; min-width: 160px; }
 .day-log-field-time input { width: 100%; }
-.day-log-form button[type="submit"] { align-self: stretch; }
+.day-log-field-covered-for { flex: 1.2; min-width: 140px; }
+.day-log-field-until input { width: 100%; }
+.day-log-field[hidden] { display: none; }
+.day-log-form button[type="submit"] {
+  padding: 7px 20px;
+  background: var(--accent-2);
+  color: #fff;
+  border-color: var(--accent-2);
+  font-weight: 600;
+}
+.day-log-form button[type="submit"]:hover { background: color-mix(in srgb, var(--accent-2) 85%, black); border-color: color-mix(in srgb, var(--accent-2) 85%, black); }
 .day-log-form-error {
   display: none;
   color: var(--bad);
@@ -228,11 +238,16 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
+/* Bad Hours Today / Outside Normal Hours reuse .day-log-list inside a bare .table-wrap
+   (no padding of its own - normally a <table>'s own cell padding fills that role), so
+   without this the text runs flush against the card's rounded edges. */
+.table-wrap .day-log-list li { padding: 10px 16px; }
 .day-log-list li:last-child { border-bottom: none; }
 .day-log-list .time { color: var(--muted); font-size: 0.76rem; }
 .day-log-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .day-log-who { display: flex; align-items: baseline; gap: 6px; }
 .day-log-note { color: var(--muted); font-style: italic; }
+.day-log-covers { color: var(--accent-2); font-size: 0.82rem; }
 .day-log-author { opacity: 0.8; }
 .day-log-badge {
   display: inline-block;
@@ -242,7 +257,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
   font-weight: 600;
   white-space: nowrap;
 }
-.day-log-badge.type-added { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+.day-log-badge.type-added, .day-log-badge.type-called_in { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
 .day-log-badge.type-covered, .day-log-badge.type-subbed { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 15%, transparent); }
 .day-log-badge.type-cut { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
 .day-log-badge.type-break_start, .day-log-badge.type-break_end { color: var(--accent-3); background: color-mix(in srgb, var(--accent-3) 15%, transparent); }
@@ -355,6 +370,33 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 .modal dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; }
 .modal dt { color: var(--muted); font-size: 0.85rem; }
 .modal dd { margin: 0; font-weight: 600; text-align: right; }
+
+.loading-overlay {
+  position: fixed;
+  top: 64px; /* fallback until positionLoadingOverlay() sets the real header height */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4; /* below header (z-index 5) so the nav stays clickable while this shows */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(8px);
+}
+.loading-overlay[hidden] { display: none; }
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent-2);
+  animation: loading-spin 0.8s linear infinite;
+}
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+.loading-overlay .loading-text { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 0 20px; }
 
 .section-header-controls { display: flex; align-items: center; gap: 8px; }
 .editor-name-wrap { display: inline-flex; align-items: center; gap: 5px; }

@@ -110,24 +110,43 @@ function formatFullDate(iso) {
 let shiftConfig = null;
 const shiftConfigPromise = fetch("/api/shift-config").then(r => r.json()).then(cfg => { shiftConfig = cfg; return cfg; });
 
+// Positions a fixed loading overlay to start just below the sticky header instead of
+// covering the whole viewport, so the nav stays visible and clickable while it's showing -
+// a slow LifeLenz query shouldn't trap you on the page if you'd rather bail to another one.
+function positionLoadingOverlay(overlayEl) {
+  const header = document.querySelector("header");
+  overlayEl.style.top = (header ? header.getBoundingClientRect().bottom : 0) + "px";
+}
+function showLoadingOverlay(overlayEl) {
+  positionLoadingOverlay(overlayEl);
+  overlayEl.hidden = false;
+}
+function hideLoadingOverlay(overlayEl) {
+  overlayEl.hidden = true;
+}
+window.addEventListener("resize", () => {
+  document.querySelectorAll(".loading-overlay").forEach(positionLoadingOverlay);
+});
+
 // Resolves to a real name (e.g. "Riley Peel") if the browser is connecting over Tailscale
 // under a known account, or null if not (LAN wifi, or Tailscale but no match) - see
 // /api/whoami in app.py. Callers use this to auto-fill "Editing as" instead of leaving it
 // to be typed every time.
 const whoamiPromise = fetch("/api/whoami").then(r => r.json()).then(d => d.name || null).catch(() => null);
 
-// Wires up an "Editing as" input: pre-fills from localStorage immediately, then upgrades to
-// the Tailscale-detected name (if any) once whoami resolves, showing `hintEl` while that
-// auto-filled value is still untouched. Shared so index.html and ops.html stay in sync via
-// the same localStorage key regardless of which page auto-detected the name first.
+// Wires up an "Editing as" input: read-only, filled only from the Tailscale-detected name
+// once whoami resolves (no manual typing - attribution has to actually mean something, so
+// it's tied to who's really connected rather than whatever name happens to be sitting in
+// the box). Falls back to the last name this browser successfully auto-detected, in case
+// whoami fails on a later request (network hiccup) - not a way to override it by hand,
+// since inputEl is readonly and nothing else ever writes to that localStorage key. Shared
+// so index.html and ops.html stay in sync regardless of which page resolved it first.
 function wireEditorNameInput(inputEl, hintEl) {
-  inputEl.value = localStorage.getItem("lifelenzEditorName") || "";
-  inputEl.addEventListener("input", () => {
-    if (hintEl) hintEl.style.display = "none";
-  });
-  inputEl.addEventListener("change", () => {
-    localStorage.setItem("lifelenzEditorName", inputEl.value.trim());
-  });
+  const cached = localStorage.getItem("lifelenzEditorName");
+  if (cached) {
+    inputEl.value = cached;
+    if (hintEl) hintEl.style.display = "inline";
+  }
   whoamiPromise.then(name => {
     if (!name) return;
     inputEl.value = name;

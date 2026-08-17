@@ -74,13 +74,13 @@
   <h3>Team Notes</h3>
   <div class="section-header-controls">
     <span class="editor-name-wrap">
-      <input type="text" id="editorNameInput" placeholder="Editing as..." class="editor-name-input" />
-      <span id="editorNameHint" class="editor-name-hint" title="Auto-detected from your Tailscale identity - edit if this isn't you">via Tailscale</span>
+      <input type="text" id="editorNameInput" placeholder="Not on Tailscale" class="editor-name-input" readonly title="Attribution is automatic - connect over Tailscale to be identified" />
+      <span id="editorNameHint" class="editor-name-hint" title="Auto-detected from your Tailscale identity">via Tailscale</span>
     </span>
     <button id="addPersonBtn">+ Add Person</button>
   </div>
 </div>
-<p class="hint">Private - stored only in team_notes.json on this machine, never sent to LifeLenz or anywhere else. Every change is attributed to whatever name is in "Editing as" above.</p>
+<p class="hint">Private - stored only in team_notes.json on this machine, never sent to LifeLenz or anywhere else. Every change is attributed to whoever's connected via Tailscale in "Editing as" above.</p>
 <div id="teamNotesError"></div>
 <div class="team-notes-list" id="teamNotesList"></div>
 

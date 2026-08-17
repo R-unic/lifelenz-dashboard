@@ -60,6 +60,37 @@ query GetEmployments($businessId: ID!, $scheduleId: ID!, $ids: [ID!]) {
 }
 """
 
+# Real punch data (found via GraphQL introspection - not in LifeLenz's public docs, so this
+# could break if they change the schema). This is what the mobile app's "who's on the clock"
+# screen is actually backed by: real clockIn/clockOut timestamps and real break windows, not
+# the published schedule. clockOut is null while someone is still clocked in -
+# includeInProgressPivots is what makes that in-progress punch show up at all instead of
+# being withheld until it closes out.
+TIME_CLOCKS_QUERY = """
+query GetTimeClocks($businessId: ID!, $scheduleId: ID!, $startDateTime: ISO8601DateTime!, $endDateTime: ISO8601DateTime!) {
+  timeClocks(
+    businessId: $businessId
+    scheduleId: $scheduleId
+    startDateTime: $startDateTime
+    endDateTime: $endDateTime
+    includeInProgressPivots: true
+    excludeDeleted: true
+    first: 200
+  ) {
+    nodes {
+      id
+      employmentId
+      clockIn
+      clockOut
+      breaks {
+        startTime
+        endTime
+      }
+    }
+  }
+}
+"""
+
 
 class LifeLenzError(Exception):
     pass
@@ -151,3 +182,18 @@ def fetch_employments(employment_ids: list[str]) -> list[dict]:
         timeout=20,
     )
     return data["employments"]["nodes"]
+
+
+def fetch_time_clocks(start_iso: str, end_iso: str) -> list[dict]:
+    business_id = os.environ.get("LIFELENZ_BUSINESS_ID")
+    schedule_id = os.environ.get("LIFELENZ_SCHEDULE_ID")
+    if not business_id or not schedule_id:
+        raise LifeLenzError("LIFELENZ_BUSINESS_ID / LIFELENZ_SCHEDULE_ID are not set in .env")
+
+    data = _post(
+        "GetTimeClocks",
+        TIME_CLOCKS_QUERY,
+        {"businessId": business_id, "scheduleId": schedule_id, "startDateTime": start_iso, "endDateTime": end_iso},
+        timeout=20,
+    )
+    return data["timeClocks"]["nodes"]

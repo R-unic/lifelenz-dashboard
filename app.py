@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 
-from lifelenz_api import LifeLenzError, fetch_dar_data, fetch_employments, fetch_shifts
+from lifelenz_api import LifeLenzError, fetch_dar_data, fetch_employments, fetch_shifts, fetch_time_clocks
 
 load_dotenv()
 
@@ -239,6 +239,30 @@ def api_roster():
     return jsonify({"shifts": roster})
 
 
+@app.route("/api/time-clocks")
+def api_time_clocks():
+    start_iso, end_iso = business_day_window(request.args.get("date"))
+    try:
+        clocks = fetch_time_clocks(start_iso, end_iso)
+        employment_ids = sorted({c["employmentId"] for c in clocks if c["employmentId"]})
+        employments = fetch_employments(employment_ids)
+    except LifeLenzError as e:
+        return jsonify({"error": str(e)}), 502
+
+    employments_by_id = {e["id"]: e for e in employments}
+    punches = []
+    for c in clocks:
+        emp = employments_by_id.get(c["employmentId"])
+        punches.append({
+            "employmentId": c["employmentId"],
+            "name": emp["computedName"] if emp else "(unknown employee)",
+            "clockIn": c["clockIn"],
+            "clockOut": c["clockOut"],
+            "breaks": [{"start": b["startTime"], "end": b["endTime"]} for b in (c["breaks"] or [])],
+        })
+    return jsonify({"punches": punches})
+
+
 # Private, local-only notes about your own night-shift crew - never sent to LifeLenz or
 # anywhere else. Keep team_notes.json out of git (see .gitignore) since it holds
 # subjective opinions about real coworkers.
@@ -323,14 +347,17 @@ def api_team_notes_delete(name):
     return jsonify({"ok": True})
 
 
-# Day-by-day staffing log: who got added/subbed/cut/took a break, and when, during your own
-# shift. This doesn't recompute LifeLenz's labor numbers (its actual_punch_hours is the real
-# source of truth once it settles) - it's a record of *why* a day's numbers look the way they
-# do, kept for explaining anomalies later and for informing the cut-suggestion reasoning.
+# Day-by-day staffing log: who got called in/covered/cut/took a break, and when, during
+# your own shift. This doesn't recompute LifeLenz's labor numbers (its actual_punch_hours
+# is the real source of truth once it settles) - it's a record of *why* a day's numbers
+# look the way they do, kept for explaining anomalies later, for informing the
+# cut-suggestion reasoning, and for reconstructing who was actually on the floor at a given
+# moment (see computeEffectiveStaffing in ops.html).
 SHIFT_EVENTS_PATH = os.path.join(os.path.dirname(__file__), "shift_events.json")
-# "covered" used to be called "subbed" - old events with that value are still valid to
-# read, just not offered as a choice for new ones.
-EVENT_TYPES = {"added", "covered", "cut", "break_start", "break_end"}
+# "called_in" used to be called "added" and "covered" used to be called "subbed" - old
+# events with those values are still valid to read, just not offered as a choice for new
+# ones (the frontend maps both to the same display label).
+EVENT_TYPES = {"called_in", "covered", "cut", "break_start", "break_end"}
 
 
 def _load_shift_events() -> dict:
@@ -364,6 +391,14 @@ def api_shift_events_create():
     if not date_str or not employee_name or event_type not in EVENT_TYPES:
         return jsonify({"error": "date, employeeName, and a valid eventType are required"}), 400
 
+    # "Who got covered" is what makes a covered event useful later (for payroll questions,
+    # and for reconstructing effective staffing) - without it it's indistinguishable from a
+    # called_in. untilTime is optional and only meaningful for a *partial* cover (someone
+    # stepping in for part of a shift, not a full handoff) - see computeEffectiveStaffing.
+    covered_for = (payload.get("coveredFor") or "").strip()
+    if event_type == "covered" and not covered_for:
+        return jsonify({"error": "coveredFor is required for a covered event"}), 400
+
     events = _load_shift_events()
     day_events = events.setdefault(date_str, [])
     entry = {
@@ -372,6 +407,8 @@ def api_shift_events_create():
         "eventType": event_type,
         "time": payload.get("time") or datetime.now(timezone.utc).isoformat(),
         "note": payload.get("note", ""),
+        "coveredFor": covered_for or None,
+        "untilTime": (payload.get("untilTime") or None) if event_type == "covered" else None,
         "author": (payload.get("editorName") or "").strip() or "Unknown",
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
