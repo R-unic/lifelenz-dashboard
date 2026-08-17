@@ -183,20 +183,69 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 .roster-list .roster-role { color: var(--muted); font-size: 0.76rem; text-align: right; }
 .roster-empty { color: var(--muted); font-size: 0.82rem; font-style: italic; margin-top: 8px; }
 
-.day-log-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-.day-log-form input[type="text"] { flex: 1; min-width: 120px; }
-.day-log-form #eventNoteInput { flex: 2; min-width: 160px; }
+.editor-name-input { width: 150px; }
+
+.day-log-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
+.day-log-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.day-log-field input, .day-log-field select {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+}
+.day-log-field-hint { text-transform: none; font-weight: 400; opacity: 0.8; }
+.day-log-field-name { flex: 1.4; min-width: 140px; }
+.day-log-field-note { flex: 2; min-width: 160px; }
+.day-log-field-time input { width: 100%; }
+.day-log-form button[type="submit"] { align-self: stretch; }
+.day-log-form-error {
+  display: none;
+  color: var(--bad);
+  font-size: 0.82rem;
+  margin: -4px 0 10px;
+}
 .day-log-list { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
 .day-log-list li {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
-  padding: 7px 0;
+  padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
 .day-log-list li:last-child { border-bottom: none; }
 .day-log-list .time { color: var(--muted); font-size: 0.76rem; }
+.day-log-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.day-log-who { display: flex; align-items: baseline; gap: 6px; }
+.day-log-note { color: var(--muted); font-style: italic; }
+.day-log-author { opacity: 0.8; }
+.day-log-badge {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.day-log-badge.type-added { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+.day-log-badge.type-covered, .day-log-badge.type-subbed { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 15%, transparent); }
+.day-log-badge.type-cut { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+.day-log-badge.type-break_start, .day-log-badge.type-break_end { color: var(--accent-3); background: color-mix(in srgb, var(--accent-3) 15%, transparent); }
 .day-log-delete {
   background: none;
   border: none;

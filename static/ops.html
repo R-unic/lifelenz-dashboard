@@ -57,24 +57,34 @@
 
 <div class="section-header">
   <h3>Day-by-Day Log</h3>
+  <input type="text" id="editorNameInput" placeholder="Editing as..." class="editor-name-input" />
 </div>
-<p class="hint">Log staffing changes as they happen (added/covered/cut/breaks) - not a recalculation of LifeLenz's own numbers, just a record of why the day went the way it did.</p>
+<p class="hint">Log staffing changes as they happen (added/covered/cut/breaks) - not a recalculation of LifeLenz's own numbers, just a record of why the day went the way it did. Newest first.</p>
 <div id="shiftEventsError"></div>
 <datalist id="rosterNamesList"></datalist>
 <div class="chart-wrap">
-  <div class="day-log-form">
-    <input type="text" id="eventNameInput" placeholder="Name" list="rosterNamesList" />
-    <select id="eventTypeInput">
-      <option value="added">Added</option>
-      <option value="covered">Covered</option>
-      <option value="cut">Cut</option>
-      <option value="break_start">Break Start</option>
-      <option value="break_end">Break End</option>
-    </select>
-    <input type="time" id="eventTimeInput" />
-    <input type="text" id="eventNoteInput" placeholder="Note (optional)" />
-    <button id="logEventBtn">Log</button>
-  </div>
+  <form class="day-log-form" id="dayLogForm">
+    <label class="day-log-field day-log-field-name">Name
+      <input type="text" id="eventNameInput" placeholder="Start typing a name…" list="rosterNamesList" autocomplete="off" />
+    </label>
+    <label class="day-log-field day-log-field-type">Event
+      <select id="eventTypeInput">
+        <option value="added">➕ Added</option>
+        <option value="covered">🔄 Covered</option>
+        <option value="cut">✂️ Cut</option>
+        <option value="break_start">☕ Break Start</option>
+        <option value="break_end">▶️ Break End</option>
+      </select>
+    </label>
+    <label class="day-log-field day-log-field-time">Time <span class="day-log-field-hint">(blank = now)</span>
+      <input type="time" id="eventTimeInput" />
+    </label>
+    <label class="day-log-field day-log-field-note">Note <span class="day-log-field-hint">(optional)</span>
+      <input type="text" id="eventNoteInput" placeholder="e.g. called out sick" />
+    </label>
+    <button type="submit" id="logEventBtn">Log</button>
+  </form>
+  <div id="dayLogFormError" class="day-log-form-error"></div>
   <ul class="day-log-list" id="dayLogList"></ul>
 </div>
 
@@ -354,14 +364,22 @@ function renderDayLog() {
     ul.innerHTML = `<li class="roster-empty">No events logged for this day yet</li>`;
     return;
   }
-  for (const ev of currentShiftEvents) {
+  // Newest first - during a live shift the entries you care about are the ones that
+  // just happened, not the ones from hours ago at the top of a long scroll.
+  for (const ev of currentShiftEvents.slice().reverse()) {
     const li = document.createElement("li");
     const timeLabel = new Date(ev.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     li.innerHTML = `
-      <span><strong>${timeLabel}</strong> - ${EVENT_TYPE_LABELS[ev.eventType] || ev.eventType} - ${escapeHtml(ev.employeeName)}${ev.note ? ": " + escapeHtml(ev.note) : ""} <span class="time">(logged by ${escapeHtml(ev.author)})</span></span>
-      <button class="day-log-delete" data-id="${ev.id}">&times;</button>
+      <span class="day-log-entry">
+        <span class="day-log-badge type-${ev.eventType}">${EVENT_TYPE_LABELS[ev.eventType] || ev.eventType}</span>
+        <span class="day-log-who"><strong>${escapeHtml(ev.employeeName)}</strong> <span class="time">${timeLabel}</span></span>
+        ${ev.note ? `<span class="day-log-note">${escapeHtml(ev.note)}</span>` : ""}
+        <span class="time day-log-author">logged by ${escapeHtml(ev.author)}</span>
+      </span>
+      <button class="day-log-delete" data-id="${ev.id}" aria-label="Delete entry">&times;</button>
     `;
     li.querySelector(".day-log-delete").addEventListener("click", async () => {
+      if (!confirm(`Remove this log entry (${ev.employeeName} - ${EVENT_TYPE_LABELS[ev.eventType] || ev.eventType})?`)) return;
       await fetch(`/api/shift-events/${ev.id}`, { method: "DELETE" });
       loadDay(datePicker.value);
     });
@@ -427,32 +445,49 @@ async function loadDay(dateStr) {
   namesList.innerHTML = uniqueNames.map((n) => `<option value="${escapeHtml(n)}"></option>`).join("");
 }
 
-document.getElementById("logEventBtn").addEventListener("click", async () => {
-  const name = document.getElementById("eventNameInput").value.trim();
+const editorNameInput = document.getElementById("editorNameInput");
+editorNameInput.value = localStorage.getItem("lifelenzEditorName") || "";
+editorNameInput.addEventListener("change", () => {
+  localStorage.setItem("lifelenzEditorName", editorNameInput.value.trim());
+});
+
+document.getElementById("dayLogForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const formErrorEl = document.getElementById("dayLogFormError");
+  formErrorEl.style.display = "none";
+
+  const nameInput = document.getElementById("eventNameInput");
+  const name = nameInput.value.trim();
   if (!name) {
-    alert("Name is required");
+    formErrorEl.textContent = "Name is required.";
+    formErrorEl.style.display = "block";
+    nameInput.focus();
     return;
   }
   await shiftConfigPromise;
   const dateStr = datePicker.value;
-  const timeInput = document.getElementById("eventTimeInput").value;
-  const timeIso = timeInput ? storeLocalTimeToISO(dateStr, timeInput, shiftConfig) : new Date().toISOString();
+  const timeInputEl = document.getElementById("eventTimeInput");
+  const timeIso = timeInputEl.value ? storeLocalTimeToISO(dateStr, timeInputEl.value, shiftConfig) : new Date().toISOString();
   const body = {
     date: dateStr,
     employeeName: name,
     eventType: document.getElementById("eventTypeInput").value,
     time: timeIso,
     note: document.getElementById("eventNoteInput").value.trim(),
-    editorName: localStorage.getItem("lifelenzEditorName") || "",
+    editorName: editorNameInput.value.trim(),
   };
   await fetch("/api/shift-events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  document.getElementById("eventNameInput").value = "";
+  nameInput.value = "";
   document.getElementById("eventNoteInput").value = "";
+  // Reset time so the next entry defaults back to "now" instead of silently reusing
+  // whatever time was typed in for this one.
+  timeInputEl.value = "";
   loadDay(dateStr);
+  nameInput.focus();
 });
 
 const datePicker = document.getElementById("datePicker");
