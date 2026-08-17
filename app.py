@@ -108,11 +108,19 @@ def api_dar():
     return jsonify(data)
 
 
+# LifeLenz rejects any single darData query whose range is too wide, and the cap is
+# tighter for finer granularity - confirmed 42 days for "day" buckets but only 32 days
+# for "hour" buckets (presumably a row-count limit: 32 days * 24h ~= 42 days * 1). Clamp
+# here regardless of what the client asks for, since this is the API's hard limit, not a
+# preference, and 502ing on a bad value helps no one.
+LIFELENZ_MAX_RANGE_DAYS = {"day": 42, "hour": 32}
+
+
 @app.route("/api/trends")
 def api_trends():
-    days = int(request.args.get("days", "30"))
-    offset_days = int(request.args.get("offset_days", "0"))
     granularity = request.args.get("granularity", "day")
+    days = min(int(request.args.get("days", "30")), LIFELENZ_MAX_RANGE_DAYS.get(granularity, 32))
+    offset_days = int(request.args.get("offset_days", "0"))
     start_iso, end_iso = period_window(days, offset_days)
     try:
         data = fetch_dar_data(start_iso, end_iso, granularity=granularity)
@@ -123,7 +131,7 @@ def api_trends():
 
 @app.route("/api/shift-history")
 def api_shift_history():
-    days = int(request.args.get("days", "30"))
+    days = min(int(request.args.get("days", "30")), LIFELENZ_MAX_RANGE_DAYS["hour"])
     start_iso, end_iso = period_window(days)
     try:
         data = fetch_dar_data(start_iso, end_iso, granularity="hour")

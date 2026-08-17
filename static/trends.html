@@ -20,6 +20,9 @@
       <a href="/ops">Night Ops</a>
     </nav>
   </div>
+  <div class="controls">
+    <span id="status"></span>
+  </div>
 </header>
 
 <div class="section-header">
@@ -27,7 +30,7 @@
   <select id="trendRange">
     <option value="7">Last 7 days</option>
     <option value="30" selected>Last 30 days</option>
-    <option value="90">Last 90 days</option>
+    <option value="32">Last 32 days (max)</option>
   </select>
 </div>
 
@@ -86,8 +89,13 @@ let shiftTrendChartInstance = null;
 
 async function loadTrends(days) {
   await shiftConfigPromise;
+  const statusEl = document.getElementById("status");
   const errorEl = document.getElementById("trendError");
   errorEl.style.display = "none";
+  // The shift-history call pulls hourly data across the whole range, which LifeLenz can
+  // take 10+ seconds to compute for 30-42 days - without a status line the page just sits
+  // blank that whole time and looks broken.
+  statusEl.textContent = "Loading…";
 
   let current, previous, shiftHistory;
   try {
@@ -97,12 +105,14 @@ async function loadTrends(days) {
       fetch(`/api/shift-history?days=${days}`).then(r => r.json()),
     ]);
   } catch (e) {
+    statusEl.textContent = "";
     errorEl.textContent = "Couldn't reach the local server for trends: " + e;
     errorEl.style.display = "block";
     return;
   }
   const err = current.error || previous.error || shiftHistory.error;
   if (err) {
+    statusEl.textContent = "";
     errorEl.textContent = "Trends request failed: " + err + " - try refreshing.";
     errorEl.style.display = "block";
     return;
@@ -111,6 +121,7 @@ async function loadTrends(days) {
   renderTrendCards(current, previous);
   renderTrendChart(current);
   renderShiftComparison(shiftHistory);
+  statusEl.textContent = "Updated " + new Date().toLocaleTimeString();
 }
 
 function renderTrendCards(current, previous) {
