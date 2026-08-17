@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fruitport McDonald's - Trends</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+
+<div class="page">
+
+<header>
+  <div class="header-left">
+    <h1>Fruitport McDonald's - Trends</h1>
+    <nav class="page-nav">
+      <a href="/">Dashboard</a>
+      <a href="/trends" class="active">Trends</a>
+    </nav>
+  </div>
+</header>
+
+<div class="section-header">
+  <h3>Trends</h3>
+  <select id="trendRange">
+    <option value="7">Last 7 days</option>
+    <option value="30" selected>Last 30 days</option>
+    <option value="90">Last 90 days</option>
+  </select>
+</div>
+
+<div id="trendError"></div>
+<div class="cards" id="trendCards"></div>
+
+<div class="chart-wrap">
+  <canvas id="trendChart" height="90"></canvas>
+</div>
+
+<div class="section-header">
+  <h3>Shift Comparison (same range)</h3>
+</div>
+<p class="hint">Recent averages are a derived baseline, not an official target - useful for setting a morning/mid goal you don't have yet.</p>
+
+<div id="shiftCompareNote"></div>
+<div class="cards shifts" id="shiftCompareCards"></div>
+
+<div class="chart-wrap">
+  <canvas id="shiftTrendChart" height="90"></canvas>
+</div>
+
+</div><!-- /.page -->
+
+<script src="/common.js"></script>
+<script>
+function pctDelta(current, previous) {
+  if (!previous || !isFinite(current) || !isFinite(previous)) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+// LifeLenz has real gaps in punch-hour history (sales recorded, actual_punch_hours = 0
+// for whole stretches of days) - flag it rather than silently computing a labor % off
+// data that's actually just missing, which produces nonsense deltas/averages.
+function hasSparseLaborData(buckets) {
+  if (!buckets || !buckets.length) return false;
+  const missing = buckets.filter(b => {
+    const f = fieldMap(b.data);
+    return Number(f.net_sales || 0) > 0 && Number(f.actual_punch_hours || 0) === 0;
+  }).length;
+  return missing / buckets.length > 0.1;
+}
+
+// goodDirection "up" = an increase is the desired direction (sales, transactions);
+// "down" = a decrease is desired (labor % of sales). Colors follow that, not the sign.
+function renderDelta(deltaPct, goodDirection) {
+  if (deltaPct == null || !isFinite(deltaPct)) return "";
+  const isUp = deltaPct >= 0;
+  const isGood = goodDirection === "up" ? isUp : !isUp;
+  const arrow = isUp ? "▲" : "▼";
+  return `<div class="delta ${isGood ? "up" : "down"}">${arrow} ${Math.abs(deltaPct).toFixed(1)}% vs prior period</div>`;
+}
+
+let trendChartInstance = null;
+let shiftTrendChartInstance = null;
+
+async function loadTrends(days) {
+  await shiftConfigPromise;
+  const errorEl = document.getElementById("trendError");
+  errorEl.style.display = "none";
+
+  let current, previous, shiftHistory;
+  try {
+    [current, previous, shiftHistory] = await Promise.all([
+      fetch(`/api/trends?days=${days}&offset_days=0`).then(r => r.json()),
+      fetch(`/api/trends?days=${days}&offset_days=${days}`).then(r => r.json()),
+      fetch(`/api/shift-history?days=${days}`).then(r => r.json()),
+    ]);
+  } catch (e) {
+    errorEl.textContent = "Couldn't reach the local server for trends: " + e;
+    errorEl.style.display = "block";
+    return;
+  }
+  const err = current.error || previous.error || shiftHistory.error;
+  if (err) {
+    errorEl.textContent = "Trends request failed: " + err + " - try refreshing.";
+    errorEl.style.display = "block";
+    return;
+  }
+
+  renderTrendCards(current, previous);
+  renderTrendChart(current);
+  renderShiftComparison(shiftHistory);
+}
+
+function renderTrendCards(current, previous) {
+  const curTotals = fieldMap(current.totals);
+  const prevTotals = fieldMap(previous.totals);
+  const el = document.getElementById("trendCards");
+  el.innerHTML = "";
+
+  const laborGap = hasSparseLaborData(current.dar) || hasSparseLaborData(previous.dar);
+
+  const items = [
+    ["Total Sales", fmtMoney(curTotals.net_sales || 0), pctDelta(Number(curTotals.net_sales), Number(prevTotals.net_sales)), "up", null],
+    ["Total Transactions", fmtInt(curTotals.transactions || 0), pctDelta(Number(curTotals.transactions), Number(prevTotals.transactions)), "up", null],
+    ["Total Labor Hours", Number(curTotals.actual_punch_hours || 0).toFixed(1), null, null, null],
+    ["Avg Labor % of Sales", fmtPercent(curTotals.labour_percentage_of_sales || 0),
+      laborGap ? null : pctDelta(Number(curTotals.labour_percentage_of_sales), Number(prevTotals.labour_percentage_of_sales)),
+      "down",
+      laborGap ? "Labor data has gaps in this range - comparison hidden." : null],
+  ];
+  for (const [label, value, delta, goodDir, note] of items) {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div>${goodDir && delta != null ? renderDelta(delta, goodDir) : ""}${note ? `<div class="baseline">${note}</div>` : ""}`;
+    el.appendChild(div);
+  }
+}
+
+function renderTrendChart(current) {
+  const labels = current.dar.map(d => formatDayLabel(d.startTime));
+  const fullDates = current.dar.map(d => formatFullDate(d.startTime));
+  const sales = current.dar.map(d => Number(fieldMap(d.data).net_sales || 0));
+  const laborPct = current.dar.map(d => {
+    const f = fieldMap(d.data);
+    const s = Number(f.net_sales || 0);
+    const hrs = Number(f.actual_punch_hours || 0);
+    return s > 0 && hrs === 0 ? null : Number(f.labour_percentage_of_sales || 0);
+  });
+
+  const style = getComputedStyle(document.documentElement);
+  const accent = style.getPropertyValue("--accent").trim();
+  const accent2 = style.getPropertyValue("--accent-2").trim();
+  const gridColor = style.getPropertyValue("--border").trim();
+  const textColor = style.getPropertyValue("--text").trim();
+
+  if (trendChartInstance) trendChartInstance.destroy();
+  trendChartInstance = new Chart(document.getElementById("trendChart"), {
+    data: {
+      labels,
+      datasets: [
+        { type: "bar", label: "Net Sales ($)", data: sales, backgroundColor: accent, yAxisID: "y", borderRadius: 3 },
+        { type: "line", label: "Labor % of Sales", data: laborPct, borderColor: accent2, backgroundColor: accent2, yAxisID: "y1", tension: 0.25, pointRadius: 2, spanGaps: true },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: textColor, maxRotation: 0, autoSkip: true }, grid: { color: gridColor } },
+        y: { position: "left", ticks: { color: textColor, callback: v => "$" + v }, grid: { color: gridColor } },
+        y1: { position: "right", ticks: { color: textColor, callback: v => v + "%" }, grid: { display: false } },
+      },
+      plugins: {
+        legend: { labels: { color: textColor } },
+        tooltip: { callbacks: { title: items => fullDates[items[0].dataIndex] } },
+      },
+    },
+  });
+}
+
+function groupHoursByLocalDate(hours, cfg) {
+  const groups = {};
+  for (const h of hours) {
+    const d = new Date(h.startTime);
+    const localMs = d.getTime() + cfg.utcOffsetHours * 3600 * 1000;
+    const localDate = new Date(localMs);
+    if (localDate.getUTCHours() < cfg.dayStartHour) localDate.setUTCDate(localDate.getUTCDate() - 1);
+    const key = localDate.toISOString().slice(0, 10);
+    (groups[key] ||= []).push(h);
+  }
+  return groups;
+}
+
+function renderShiftComparison(shiftHistory) {
+  const el = document.getElementById("shiftCompareCards");
+  el.innerHTML = "";
+  if (!shiftConfig) return;
+
+  const noteEl = document.getElementById("shiftCompareNote");
+  noteEl.innerHTML = hasSparseLaborData(shiftHistory.dar)
+    ? `<div class="modal-note" style="margin-bottom:12px;">Some hours in this range have sales but 0 recorded labor hours (a LifeLenz data gap, not actually unstaffed) - shift averages below may read low. Try a shorter range.</div>`
+    : "";
+
+  const summary = computeShiftSummary(shiftHistory, shiftConfig);
+  for (const { key, name } of SHIFT_DEFS) {
+    const s = summary[key];
+    const goal = shiftConfig.goals[key];
+    let goalHtml, cardClass = "";
+    if (goal != null) {
+      const pass = s.laborPct <= goal;
+      cardClass = pass ? "goal-pass" : "goal-fail";
+      goalHtml = `<div class="goal ${pass ? "pass" : "fail"}">${pass ? "✓" : "✗"} Goal ≤${goal}% ${pass ? "met" : "missed"} over range</div>`;
+    } else {
+      goalHtml = `<div class="baseline">No goal set - this range's average could work as a starting target.</div>`;
+    }
+    const div = document.createElement("div");
+    div.className = "card " + cardClass;
+    div.innerHTML = `
+      <div class="label">${name} (${shiftTimeRange(key, shiftConfig)})</div>
+      <div class="value">${s.laborPct.toFixed(1)}%</div>
+      <div class="sub">${fmtMoney(s.sales)} sales &middot; ${s.hours.toFixed(1)} labor hrs &middot; ~${Math.round(s.avgStaff)} avg staff/hr</div>
+      ${goalHtml}
+    `;
+    el.appendChild(div);
+  }
+
+  renderShiftTrendChart(shiftHistory);
+}
+
+function renderShiftTrendChart(shiftHistory) {
+  const groups = groupHoursByLocalDate(shiftHistory.dar, shiftConfig);
+  const dateKeys = Object.keys(groups).sort();
+
+  const series = { morning: [], mid: [], night: [] };
+  for (const key of dateKeys) {
+    const daySummary = computeShiftSummary({ dar: groups[key] }, shiftConfig);
+    for (const shiftKey of Object.keys(series)) {
+      const s = daySummary[shiftKey];
+      series[shiftKey].push(s.sales > 0 || s.hours > 0 ? s.laborPct : null);
+    }
+  }
+
+  const labels = dateKeys.map(k => formatDayLabel(k + "T12:00:00Z"));
+  const fullDates = dateKeys.map(k => formatFullDate(k + "T12:00:00Z"));
+  const style = getComputedStyle(document.documentElement);
+  const colors = {
+    morning: style.getPropertyValue("--accent-3").trim(),
+    mid: style.getPropertyValue("--accent-2").trim(),
+    night: style.getPropertyValue("--accent").trim(),
+  };
+  const gridColor = style.getPropertyValue("--border").trim();
+  const textColor = style.getPropertyValue("--text").trim();
+
+  const goalDatasets = SHIFT_DEFS
+    .filter(({ key }) => shiftConfig.goals[key] != null)
+    .map(({ key, name }) => ({
+      label: name + " Goal (" + shiftConfig.goals[key] + "%)",
+      data: dateKeys.map(() => shiftConfig.goals[key]),
+      borderColor: colors[key],
+      borderDash: [6, 4],
+      borderWidth: 1.5,
+      pointRadius: 0,
+    }));
+
+  if (shiftTrendChartInstance) shiftTrendChartInstance.destroy();
+  shiftTrendChartInstance = new Chart(document.getElementById("shiftTrendChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        ...SHIFT_DEFS.map(({ key, name }) => ({
+          label: name + " Labor % of Sales",
+          data: series[key],
+          borderColor: colors[key],
+          backgroundColor: colors[key],
+          spanGaps: true,
+          tension: 0.25,
+          pointRadius: 2,
+        })),
+        ...goalDatasets,
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: { ticks: { color: textColor, maxRotation: 0, autoSkip: true }, grid: { color: gridColor } },
+        y: {
+          ticks: { color: textColor, callback: v => v + "%" },
+          grid: { color: gridColor },
+          title: { display: true, text: "Labor % of Sales", color: textColor },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: textColor } },
+        tooltip: { callbacks: { title: items => fullDates[items[0].dataIndex] } },
+      },
+    },
+  });
+}
+
+const trendRangeSelect = document.getElementById("trendRange");
+trendRangeSelect.addEventListener("change", () => loadTrends(trendRangeSelect.value));
+
+loadTrends(trendRangeSelect.value);
+</script>
+
+</body>
+</html>

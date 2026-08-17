@@ -66,6 +66,11 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/trends")
+def trends_page():
+    return send_from_directory(app.static_folder, "trends.html")
+
+
 @app.route("/api/shift-config")
 def api_shift_config():
     return jsonify({
@@ -83,6 +88,7 @@ def api_shift_config():
         "managersInTraining": _name_list("LIFELENZ_MANAGERS_IN_TRAINING"),
         "generalManagers": _name_list("LIFELENZ_GENERAL_MANAGERS"),
         "manualManagers": _name_list("LIFELENZ_MANUAL_MANAGERS"),
+        "skillGapExempt": _name_list("LIFELENZ_SKILL_GAP_EXEMPT"),
     })
 
 
@@ -174,6 +180,24 @@ def _save_team_notes(notes: dict) -> None:
         json.dump(notes, f, indent=2)
 
 
+TEAM_NOTE_FIELD_LABELS = {
+    "rapport": "rapport",
+    "strengths": "strengths",
+    "limitations": "limitations",
+    "skillNotes": "skill notes",
+    "caution": "caution flag",
+    "cautionNote": "caution note",
+    "notes": "notes",
+}
+
+
+def _diff_summary(old: dict | None, new: dict) -> str:
+    if old is None:
+        return "Created"
+    changed = [label for field, label in TEAM_NOTE_FIELD_LABELS.items() if old.get(field) != new.get(field)]
+    return "Changed: " + ", ".join(changed) if changed else "No changes"
+
+
 @app.route("/api/team-notes", methods=["GET"])
 def api_team_notes_list():
     return jsonify(list(_load_team_notes().values()))
@@ -186,8 +210,13 @@ def api_team_notes_upsert():
     if not name:
         return jsonify({"error": "name is required"}), 400
 
+    editor = (payload.get("editorName") or "").strip() or "Unknown"
+
     notes = _load_team_notes()
-    notes[name] = {
+    old = notes.get(name)
+    history = list(old.get("history", [])) if old else []
+
+    record = {
         "name": name,
         "rapport": payload.get("rapport", ""),
         "strengths": payload.get("strengths", ""),
@@ -197,7 +226,12 @@ def api_team_notes_upsert():
         "cautionNote": payload.get("cautionNote", ""),
         "notes": payload.get("notes", ""),
         "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "updatedBy": editor,
     }
+    history.append({"author": editor, "timestamp": record["updatedAt"], "summary": _diff_summary(old, record)})
+    record["history"] = history
+
+    notes[name] = record
     _save_team_notes(notes)
     return jsonify(notes[name])
 
