@@ -96,6 +96,7 @@ def api_shift_config():
         "generalManagers": _name_list("LIFELENZ_GENERAL_MANAGERS"),
         "manualManagers": _name_list("LIFELENZ_MANUAL_MANAGERS"),
         "skillGapExempt": _name_list("LIFELENZ_SKILL_GAP_EXEMPT"),
+        "morningFloorPriority": _name_list("LIFELENZ_MORNING_FLOOR_PRIORITY"),
     })
 
 

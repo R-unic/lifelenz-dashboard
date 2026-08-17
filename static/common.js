@@ -178,6 +178,16 @@ function formatClockTime(isoStart, utcOffsetHours) {
   return `${hh12}:${String(mm).padStart(2, "0")} ${period}`;
 }
 
+// Reads an "HH:MM" store-local time on a given date as a real UTC instant (per
+// cfg.utcOffsetHours), not the viewer's browser timezone. Used anywhere a config hour
+// (open/close) needs comparing against a real shift timestamp - a plain hour-of-day
+// comparison would wrap incorrectly for anything crossing midnight.
+function storeLocalTimeToISO(dateStr, timeStr, cfg) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const [hh, mm] = timeStr.split(":").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, hh - cfg.utcOffsetHours, mm)).toISOString();
+}
+
 // Staff shift types don't share the sales-daypart boundaries used by classifyShift
 // (5am/11am/4pm, plus a "pre-open hours belong to last night's closing crew" wraparound
 // that only makes sense for backward-looking labor accounting). A crew member's actual
@@ -241,6 +251,25 @@ function matchFloorManagerShift(shift, cfg) {
   if (shiftKey === "mid" && start < 9 && ((end >= 16.75 && end < 17.25) || (end >= 17.75 && end < 18.25))) return { shiftKey, confidence: "confirmed" };
   if (shiftKey === "morning" && start < 7 && end >= 11) return { shiftKey, confidence: "guess" };
   return null;
+}
+
+// matchFloorManagerShift can match more than one person for the same shift (e.g. both
+// Cassie Velez and Jonathan Chase clear the loose morning-guess window, or a mid shift has
+// one manager starting 7am and another 8am) - narrow that down to exactly one instead of
+// showing them all as "the floor manager" simultaneously. Morning ties break by an
+// explicit priority list (cfg.morningFloorPriority, since there's no time-window signal
+// loose enough to catch a real opener but tight enough to exclude a false match); every
+// other tie breaks by earliest start - whoever actually clocked in first was the one
+// running the floor at open, not whoever happens to sort first some other way.
+function pickFloorManager(candidates, cfg) {
+  if (candidates.length <= 1) return candidates[0] || null;
+  if (cfg.morningFloorPriority && cfg.morningFloorPriority.length) {
+    for (const name of cfg.morningFloorPriority) {
+      const match = candidates.find((c) => c.name.toLowerCase() === name.toLowerCase());
+      if (match) return match;
+    }
+  }
+  return candidates.slice().sort((a, b) => new Date(a.shiftStartTime) - new Date(b.shiftStartTime))[0];
 }
 
 // "Working with today" / night-scoped checks use this - whether a shift actually overlaps

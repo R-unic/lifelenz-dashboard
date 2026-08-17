@@ -224,6 +224,29 @@ function staffScheduledDuring(hourStartIso, roster) {
   });
 }
 
+// Opener/closer badges - real timestamp comparison against store open/close (not
+// hour-of-day) so a closer working past midnight isn't missed by a wraparound bug. Windows
+// are generous on purpose: openers often clock in early for prep, closers often clock out
+// a bit before the nominal close while cleanup continues without them.
+const OPENER_WINDOW_BEFORE_MS = 2 * 3600000;
+const OPENER_WINDOW_AFTER_MS = 1 * 3600000;
+const CLOSER_WINDOW_BEFORE_MS = 0.5 * 3600000;
+
+function openerCloserTag(shift, dateStr, cfg) {
+  if (!dateStr) return "";
+  const openMs = new Date(storeLocalTimeToISO(dateStr, `${String(cfg.openHour).padStart(2, "0")}:00`, cfg)).getTime();
+  const closeMs = new Date(storeLocalTimeToISO(dateStr, `${String(cfg.closeHour).padStart(2, "0")}:00`, cfg)).getTime();
+  const startMs = new Date(shift.shiftStartTime).getTime();
+  const endMs = new Date(shift.shiftEndTime).getTime();
+  if (startMs >= openMs - OPENER_WINDOW_BEFORE_MS && startMs <= openMs + OPENER_WINDOW_AFTER_MS) {
+    return ` <span class="roster-tag opener" title="Opens the store">🌅 OPENER</span>`;
+  }
+  if (endMs >= closeMs - CLOSER_WINDOW_BEFORE_MS) {
+    return ` <span class="roster-tag closer" title="Closes the store">🌙 CLOSER</span>`;
+  }
+  return "";
+}
+
 function renderRosterCards(shifts, cfg) {
   const el = document.getElementById("rosterCards");
   el.innerHTML = "";
@@ -242,7 +265,11 @@ function renderRosterCards(shifts, cfg) {
 
   for (const { key, name } of SHIFT_DEFS) {
     const shiftsInBucket = buckets[key].slice().sort((a, b) => new Date(a.shiftStartTime) - new Date(b.shiftStartTime));
-    const managers = shiftsInBucket.filter(s => matchFloorManagerShift(s, cfg)?.shiftKey === key);
+    const matched = shiftsInBucket.filter(s => matchFloorManagerShift(s, cfg)?.shiftKey === key);
+    // Only ever one floor manager per shift - matchFloorManagerShift's morning window in
+    // particular is loose enough to catch more than one plausible opener some mornings.
+    const picked = pickFloorManager(matched, cfg);
+    const managers = picked ? [picked] : [];
 
     const div = document.createElement("div");
     div.className = "card";
@@ -252,7 +279,7 @@ function renderRosterCards(shifts, cfg) {
           const conf = matchFloorManagerShift(m, cfg).confidence;
           return `<div class="roster-manager">
             <span class="badge">${conf === "guess" ? "Floor Manager? (best guess)" : "Floor Manager"}</span><br>
-            ${m.name}${staffTag(m, cfg)} <span class="time">${formatClockTime(m.shiftStartTime, cfg.utcOffsetHours)} - ${formatClockTime(m.shiftEndTime, cfg.utcOffsetHours)}</span>
+            ${m.name}${staffTag(m, cfg)}${openerCloserTag(m, currentRosterDate, cfg)} <span class="time">${formatClockTime(m.shiftStartTime, cfg.utcOffsetHours)} - ${formatClockTime(m.shiftEndTime, cfg.utcOffsetHours)}</span>
           </div>`;
         }).join("")
       : `<div class="roster-manager" style="opacity:0.6"><span class="badge">Floor Manager</span><br>No clear match this shift</div>`;
@@ -262,7 +289,7 @@ function renderRosterCards(shifts, cfg) {
     const crewHtml = crew.length
       ? `<ul class="roster-list">${crew.map(s => `
           <li>
-            <span>${s.name}${staffTag(s, cfg)} <span class="time">${formatClockTime(s.shiftStartTime, cfg.utcOffsetHours)}-${formatClockTime(s.shiftEndTime, cfg.utcOffsetHours)}</span></span>
+            <span>${s.name}${staffTag(s, cfg)}${openerCloserTag(s, currentRosterDate, cfg)} <span class="time">${formatClockTime(s.shiftStartTime, cfg.utcOffsetHours)}-${formatClockTime(s.shiftEndTime, cfg.utcOffsetHours)}</span></span>
             <span class="roster-role">${s.roles.slice(0, 2).join(", ") || "-"}</span>
           </li>`).join("")}</ul>`
       : `<div class="roster-empty">No other crew scheduled</div>`;
@@ -437,6 +464,28 @@ function renderInsightCards(insights) {
   }
 }
 
+// LifeLenz's DAR data simply stops at "now" for today - it never returns hours that
+// haven't happened yet. Left alone, the chart's x-axis just gets shorter and shorter over
+// the course of the day instead of always showing the full business day. Fills the gap
+// with placeholder entries (marked __placeholder) so the axis is always a full 24 hours;
+// their series values render as null (a gap), not 0, so an hour that hasn't happened yet
+// is never mistaken for one that happened with zero sales.
+function fillMissingHours(hours) {
+  if (!hours.length) return hours;
+  const startMs = new Date(hours[0].startTime).getTime();
+  // Keyed by numeric timestamp, not the raw startTime string - LifeLenz's own strings omit
+  // milliseconds ("...T08:00:00Z") while a generated placeholder's .toISOString() always
+  // includes them ("...T08:00:00.000Z"), so a string-keyed map would silently never match
+  // a single real hour and every series would come out entirely null.
+  const byTime = new Map(hours.map(h => [new Date(h.startTime).getTime(), h]));
+  const filled = [];
+  for (let i = 0; i < 24; i++) {
+    const ms = startMs + i * 3600000;
+    filled.push(byTime.get(ms) || { startTime: new Date(ms).toISOString(), data: [], missingActuals: true, __placeholder: true });
+  }
+  return filled;
+}
+
 function render(darData) {
   currentHours = darData.dar;
 
@@ -455,13 +504,22 @@ function render(darData) {
   renderShiftCards(currentShiftSummary, shiftConfig);
   renderGlancePanel();
 
-  const hours = darData.dar.map(h => localHourLabel(h.startTime));
-  const salesSeries = darData.dar.map(h => Number(fieldMap(h.data).net_sales || 0));
-  const laborPctSeries = darData.dar.map(h => Number(fieldMap(h.data).labour_percentage_of_sales || 0));
+  const chartHours = fillMissingHours(darData.dar);
+  // "Important" = normal operating hours. Pre-open/post-close buckets often show wild
+  // labor% readings on near-zero sales (a lone person finishing cleanup registers as a
+  // huge % of a $4 hour) - real, but not what the graph should be scaled around.
+  const isImportantHour = h => {
+    const hr = localHour24(h.startTime, shiftConfig ? shiftConfig.utcOffsetHours : 0);
+    return hr >= 6 && hr < 22;
+  };
+
+  const hours = chartHours.map(h => localHourLabel(h.startTime));
+  const salesSeries = chartHours.map(h => (h.__placeholder ? null : Number(fieldMap(h.data).net_sales || 0)));
+  const laborPctSeries = chartHours.map(h => (h.__placeholder ? null : Number(fieldMap(h.data).labour_percentage_of_sales || 0)));
   // Goal varies by shift across the day, so this is a per-hour lookup, not one flat line.
-  // Null (gap) for hours whose shift has no goal configured yet.
+  // Drawn for the full day (including placeholder hours) since it's a target line, not data.
   const goalSeries = shiftConfig
-    ? darData.dar.map(h => {
+    ? chartHours.map(h => {
         const key = classifyShift(localHour24(h.startTime, shiftConfig.utcOffsetHours), shiftConfig);
         return shiftConfig.goals[key];
       })
@@ -474,6 +532,20 @@ function render(darData) {
   const gridColor = style.getPropertyValue("--border").trim();
   const textColor = style.getPropertyValue("--text").trim();
   const muted = style.getPropertyValue("--muted").trim();
+  // Off-hour bars/points are drawn at ~25% opacity instead of being hidden outright -
+  // they still exist and are still clickable, they just don't visually compete with the
+  // hours that actually matter for staffing decisions.
+  const salesColors = chartHours.map(h => (isImportantHour(h) ? accent : accent + "40"));
+  const laborPointColors = chartHours.map(h => (isImportantHour(h) ? accent2 : accent2 + "40"));
+
+  // Cap the labor% axis to what actually happens during operating hours (plus the goal
+  // lines) instead of letting Chart.js auto-scale to the full dataset's max - otherwise one
+  // 100%+ off-hour outlier stretches the axis so much that a genuinely bad 42% against a
+  // 21% goal mid-shift reads as a small gap instead of literally double the target.
+  const importantLaborPct = chartHours.filter(h => !h.__placeholder && isImportantHour(h)).map(h => Number(fieldMap(h.data).labour_percentage_of_sales || 0));
+  const goalValues = shiftConfig ? Object.values(shiftConfig.goals).filter(g => g != null) : [];
+  const y1ReferenceValues = [...importantLaborPct, ...goalValues];
+  const y1Max = y1ReferenceValues.length ? Math.max(...y1ReferenceValues) * 1.25 : 60;
 
   if (chart) chart.destroy();
   chart = new Chart(ctx, {
@@ -484,7 +556,7 @@ function render(darData) {
           type: "bar",
           label: "Net Sales ($)",
           data: salesSeries,
-          backgroundColor: accent,
+          backgroundColor: salesColors,
           yAxisID: "y",
           borderRadius: 4,
         },
@@ -494,6 +566,8 @@ function render(darData) {
           data: laborPctSeries,
           borderColor: accent2,
           backgroundColor: accent2,
+          pointBackgroundColor: laborPointColors,
+          pointBorderColor: laborPointColors,
           yAxisID: "y1",
           tension: 0.25,
           pointRadius: 3,
@@ -515,18 +589,23 @@ function render(darData) {
       responsive: true,
       interaction: { mode: "index", intersect: false },
       onClick: (evt, elements) => {
-        if (elements.length) openModal(currentHours[elements[0].index]);
+        if (!elements.length) return;
+        const hour = chartHours[elements[0].index];
+        if (!hour.__placeholder) openModal(hour);
       },
       scales: {
         x: { ticks: { color: textColor }, grid: { color: gridColor } },
         y: {
           position: "left",
+          min: 0,
           ticks: { color: textColor, callback: v => "$" + v },
           grid: { color: gridColor },
           title: { display: true, text: "Net Sales", color: textColor },
         },
         y1: {
           position: "right",
+          min: 0,
+          max: y1Max,
           ticks: { color: textColor, callback: v => v + "%" },
           grid: { display: false },
           title: { display: true, text: "Labor % of Sales", color: textColor },

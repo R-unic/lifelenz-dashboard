@@ -182,6 +182,18 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 8%, transparent)
 .roster-list li:last-child { border-bottom: none; }
 .roster-list .roster-role { color: var(--muted); font-size: 0.76rem; text-align: right; }
 .roster-empty { color: var(--muted); font-size: 0.82rem; font-style: italic; margin-top: 8px; }
+.roster-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  vertical-align: middle;
+  color: #fff;
+}
+.roster-tag.opener { background: var(--good); }
+.roster-tag.closer { background: var(--accent); }
 
 .editor-name-input { width: 150px; }
 
