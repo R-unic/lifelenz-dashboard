@@ -35,6 +35,16 @@
       <div class="cards shifts" id="shiftCards"></div>
 
       <div class="section-header">
+        <h3>Cut Suggestions</h3>
+      </div>
+      <p class="hint">
+        A suggestion, not an order - based on LifeLenz's own hours-vs-ideal and
+        labor-goal signals, current skill coverage, remaining shift time, and
+        minor-break status. Never suggests the floor manager.
+      </p>
+      <div id="cutSuggestions" class="glance-panel"></div>
+
+      <div class="section-header">
         <h3>Today's Roster</h3>
       </div>
       <p class="hint">
@@ -368,6 +378,7 @@
         renderRosterCards(body.shifts, shiftConfig);
         if (currentHours.length) renderHourlyTable(currentHours);
         renderGlancePanel();
+        renderCutSuggestions();
 
         const namesList = document.getElementById("rosterNamesList");
         const uniqueNames = [...new Set(body.shifts.map((s) => s.name))].sort();
@@ -493,6 +504,7 @@
           return;
         }
         renderDayLog();
+        renderCutSuggestions();
       }
 
       function renderDayLog() {
@@ -664,6 +676,162 @@
         el.innerHTML = `<h4>At a Glance</h4>${rows.join("")}`;
       }
 
+      function latestActiveHour(hours) {
+        // Most recent bucket that actually has some activity (sales or labor hours logged),
+        // falling back to the last bucket overall if the whole day is still empty.
+        const withActivity = hours.filter((h) => {
+          const f = fieldMap(h.data);
+          return (
+            Number(f.net_sales || 0) > 0 || Number(f.actual_punch_hours || 0) > 0
+          );
+        });
+        return withActivity.length
+          ? withActivity[withActivity.length - 1]
+          : hours[hours.length - 1];
+      }
+
+      function computeRoleCoverage(people) {
+        const counts = {};
+        for (const s of people) {
+          for (const role of s.roles) counts[role] = (counts[role] || 0) + 1;
+        }
+        return counts;
+      }
+
+      // "Projections" here means LifeLenz's own hours-vs-ideal and labor-goal signals, not a
+      // custom forecast model - those are the only forward-looking numbers actually available.
+      // Never suggests the floor manager, never suggests someone who's the only person
+      // currently covering a role, and always checks minor break status first since that's
+      // a compliance question, not an optimization one.
+      function renderCutSuggestions() {
+        const el = document.getElementById("cutSuggestions");
+        if (
+          !shiftConfig ||
+          !currentHours.length ||
+          !currentRoster.length
+        ) {
+          el.innerHTML = "";
+          return;
+        }
+
+        const latest = latestActiveHour(currentHours);
+        const f = fieldMap(latest.data);
+        const laborPctNow = Number(f.labour_percentage_of_sales || 0);
+        const idealVariance = Number(f.total_hours_ideal_variation || 0);
+        const nightGoal = shiftConfig.goals.night;
+        const overstaffed =
+          (nightGoal != null && laborPctNow > nightGoal) || idealVariance > 0.5;
+
+        const peopleToday = [
+          ...new Map(
+            currentRoster.map((s) => [s.name.toLowerCase(), s]),
+          ).values(),
+        ];
+        const nightPeople = peopleToday.filter((s) =>
+          worksIntoNightShift(s, currentRosterDate, shiftConfig),
+        );
+
+        const now = new Date();
+        const minorAlerts = [];
+        for (const s of nightPeople) {
+          const note = teamNoteFor(s.name);
+          if (!note?.isMinor) continue;
+          const shiftStart = new Date(s.shiftStartTime);
+          const shiftEnd = new Date(s.shiftEndTime);
+          // Only flag while they're actually clocked in - otherwise this kept flagging
+          // someone hours after their shift ended, since "hours since start" doesn't
+          // stop growing just because they went home.
+          if (now < shiftStart || now > shiftEnd) continue;
+          const hasBreak = currentShiftEvents.some(
+            (ev) =>
+              ev.eventType === "break_start" &&
+              ev.employeeName.toLowerCase() === s.name.toLowerCase(),
+          );
+          if (hasBreak) continue;
+          const hoursWorked = (now - shiftStart) / 3600000;
+          if (hoursWorked >= 5) minorAlerts.push({ shift: s, hoursWorked });
+        }
+
+        const rows = [];
+        if (minorAlerts.length) {
+          rows.push(
+            `<div class="glance-row minor"><span class="icon">🧒</span><span>${minorAlerts.map((a) => `${escapeHtml(a.shift.name)} has worked ~${a.hoursWorked.toFixed(1)}hrs with no logged break`).join("; ")} - check your state's minor break requirement, this isn't legal advice</span></div>`,
+          );
+        }
+
+        if (!overstaffed) {
+          rows.push(
+            `<div class="glance-row all-clear"><span class="icon">✅</span><span>No cuts suggested right now - labor % (${laborPctNow.toFixed(1)}%) and hours vs LifeLenz's ideal (${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}) are both in range</span></div>`,
+          );
+          el.innerHTML = rows.join("");
+          return;
+        }
+
+        const floorManagerNames = new Set(
+          nightPeople
+            .filter(
+              (s) => matchFloorManagerShift(s, shiftConfig)?.shiftKey === "night",
+            )
+            .map((s) => s.name.toLowerCase()),
+        );
+
+        // Actually clocked in right now - started already, not ended yet. Without the
+        // start-time check this suggested cutting people whose shift hadn't started yet
+        // tonight, counting the hours until "later tonight" as if they were already
+        // working and could be sent home from a shift they hadn't begun.
+        const stillOnShift = nightPeople.filter(
+          (s) =>
+            new Date(s.shiftStartTime) <= now && new Date(s.shiftEndTime) > now,
+        );
+        const roleCoverage = computeRoleCoverage(stillOnShift);
+
+        const candidates = [];
+        let protectedCount = 0;
+        for (const s of stillOnShift) {
+          if (floorManagerNames.has(s.name.toLowerCase())) continue;
+          const isSoleCoverage = s.roles.some(
+            (role) => roleCoverage[role] === 1,
+          );
+          if (isSoleCoverage) {
+            protectedCount++;
+            continue;
+          }
+          candidates.push({
+            shift: s,
+            remainingHours: (new Date(s.shiftEndTime) - now) / 3600000,
+            trainedRoleCount: s.trainedRoleCount,
+          });
+        }
+
+        candidates.sort(
+          (a, b) =>
+            b.remainingHours - a.remainingHours ||
+            a.trainedRoleCount - b.trainedRoleCount,
+        );
+        const top = candidates.slice(0, 3);
+
+        if (top.length) {
+          rows.push(
+            `<div class="glance-row skill-gap"><span class="icon">✂️</span><span>Labor is running ${nightGoal != null ? `above the ${nightGoal}% goal` : "above LifeLenz's ideal hours"} (${laborPctNow.toFixed(1)}% now, ${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}hrs vs ideal). Suggested cuts, ranked by biggest labor-hour savings:</span></div>`,
+          );
+          for (const c of top) {
+            rows.push(
+              `<div class="glance-row"><span class="icon">→</span><span>${escapeHtml(c.shift.name)} - shift ends ${formatClockTime(c.shift.shiftEndTime, shiftConfig.utcOffsetHours)} (${c.remainingHours.toFixed(1)}hrs left), ${c.trainedRoleCount} trained tags, on ${c.shift.roles.join(", ") || "no listed role"} tonight</span></div>`,
+            );
+          }
+        } else if (protectedCount > 0) {
+          rows.push(
+            `<div class="glance-row caution"><span class="icon">⚠️</span><span>Labor is over target, but everyone still on shift is the only coverage for their role right now - cutting anyone would leave a gap</span></div>`,
+          );
+        } else {
+          rows.push(
+            `<div class="glance-row caution"><span class="icon">⚠️</span><span>Labor is over target, but there's no one left to suggest cutting</span></div>`,
+          );
+        }
+
+        el.innerHTML = rows.join("");
+      }
+
       let chart = null;
       let currentHours = [];
       let currentRoster = [];
@@ -783,6 +951,7 @@
         currentShiftSummary = shiftConfig ? computeShiftSummary(darData, shiftConfig) : null;
         renderShiftCards(currentShiftSummary, shiftConfig);
         renderGlancePanel();
+        renderCutSuggestions();
 
         const hours = darData.dar.map((h) => localHourLabel(h.startTime));
         const salesSeries = darData.dar.map((h) =>
@@ -1006,6 +1175,7 @@
         }
         renderTeamNotes();
         renderGlancePanel();
+        renderCutSuggestions();
       }
 
       function renderTeamNotes() {
