@@ -1,5 +1,6 @@
 .env
 team_notes.json
+shift_events.json
 __pycache__/
 *.pyc
 *.log

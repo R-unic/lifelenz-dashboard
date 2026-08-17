@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -243,6 +244,70 @@ def api_team_notes_delete(name):
     notes = _load_team_notes()
     notes.pop(name, None)
     _save_team_notes(notes)
+    return jsonify({"ok": True})
+
+
+# Day-by-day staffing log: who got added/subbed/cut/took a break, and when, during your own
+# shift. This doesn't recompute LifeLenz's labor numbers (its actual_punch_hours is the real
+# source of truth once it settles) - it's a record of *why* a day's numbers look the way they
+# do, kept for explaining anomalies later and for informing the cut-suggestion reasoning.
+SHIFT_EVENTS_PATH = os.path.join(os.path.dirname(__file__), "shift_events.json")
+EVENT_TYPES = {"added", "subbed", "cut", "break_start", "break_end"}
+
+
+def _load_shift_events() -> dict:
+    if not os.path.exists(SHIFT_EVENTS_PATH):
+        return {}
+    with open(SHIFT_EVENTS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_shift_events(events: dict) -> None:
+    with open(SHIFT_EVENTS_PATH, "w", encoding="utf-8") as f:
+        json.dump(events, f, indent=2)
+
+
+@app.route("/api/shift-events")
+def api_shift_events_list():
+    date_str = request.args.get("date")
+    if not date_str:
+        return jsonify({"error": "date is required"}), 400
+    events = _load_shift_events()
+    day_events = sorted(events.get(date_str, []), key=lambda e: e["time"])
+    return jsonify({"events": day_events})
+
+
+@app.route("/api/shift-events", methods=["POST"])
+def api_shift_events_create():
+    payload = request.get_json(force=True)
+    date_str = (payload.get("date") or "").strip()
+    employee_name = (payload.get("employeeName") or "").strip()
+    event_type = (payload.get("eventType") or "").strip()
+    if not date_str or not employee_name or event_type not in EVENT_TYPES:
+        return jsonify({"error": "date, employeeName, and a valid eventType are required"}), 400
+
+    events = _load_shift_events()
+    day_events = events.setdefault(date_str, [])
+    entry = {
+        "id": str(uuid.uuid4()),
+        "employeeName": employee_name,
+        "eventType": event_type,
+        "time": payload.get("time") or datetime.now(timezone.utc).isoformat(),
+        "note": payload.get("note", ""),
+        "author": (payload.get("editorName") or "").strip() or "Unknown",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    day_events.append(entry)
+    _save_shift_events(events)
+    return jsonify(entry)
+
+
+@app.route("/api/shift-events/<event_id>", methods=["DELETE"])
+def api_shift_events_delete(event_id):
+    events = _load_shift_events()
+    for date_str in events:
+        events[date_str] = [e for e in events[date_str] if e["id"] != event_id]
+    _save_shift_events(events)
     return jsonify({"ok": True})
 
 

@@ -46,6 +46,33 @@
 
       <div class="cards shifts" id="rosterCards"></div>
 
+      <div class="section-header">
+        <h3>Day-by-Day Log</h3>
+      </div>
+      <p class="hint">
+        Log staffing changes as they happen (added/subbed/cut/breaks) - not a
+        recalculation of LifeLenz's own numbers, just a record of why the day
+        went the way it did.
+      </p>
+      <div id="shiftEventsError"></div>
+      <datalist id="rosterNamesList"></datalist>
+      <div class="chart-wrap">
+        <div class="day-log-form">
+          <input type="text" id="eventNameInput" placeholder="Name" list="rosterNamesList" />
+          <select id="eventTypeInput">
+            <option value="added">Added</option>
+            <option value="subbed">Subbed</option>
+            <option value="cut">Cut</option>
+            <option value="break_start">Break Start</option>
+            <option value="break_end">Break End</option>
+          </select>
+          <input type="time" id="eventTimeInput" />
+          <input type="text" id="eventNoteInput" placeholder="Note (optional)" />
+          <button id="logEventBtn">Log</button>
+        </div>
+        <ul class="day-log-list" id="dayLogList"></ul>
+      </div>
+
       <div class="chart-wrap">
         <canvas id="hourlyChart" height="90"></canvas>
       </div>
@@ -341,6 +368,10 @@
         renderRosterCards(body.shifts, shiftConfig);
         if (currentHours.length) renderHourlyTable(currentHours);
         renderGlancePanel();
+
+        const namesList = document.getElementById("rosterNamesList");
+        const uniqueNames = [...new Set(body.shifts.map((s) => s.name))].sort();
+        namesList.innerHTML = uniqueNames.map((n) => `<option value="${escapeHtml(n)}"></option>`).join("");
       }
 
       // A shift "covers" an hour bucket if it overlaps that hour at all, not just if it
@@ -436,6 +467,63 @@
           div.innerHTML = `<div class="label">${name} (${shiftTimeRange(key, cfg)})</div>${managerHtml}${crewHtml}`;
           el.appendChild(div);
         }
+      }
+
+      let currentShiftEvents = [];
+
+      const EVENT_TYPE_LABELS = {
+        added: "➕ Added",
+        subbed: "🔄 Subbed",
+        cut: "✂️ Cut",
+        break_start: "☕ Break Start",
+        break_end: "▶️ Break End",
+      };
+
+      async function loadShiftEvents(dateStr) {
+        const errorEl = document.getElementById("shiftEventsError");
+        errorEl.style.display = "none";
+        try {
+          const resp = await fetch(`/api/shift-events?date=${dateStr}`);
+          const body = await resp.json();
+          if (!resp.ok) throw new Error(body.error || `Request failed (${resp.status})`);
+          currentShiftEvents = body.events;
+        } catch (e) {
+          errorEl.textContent = "Couldn't load the day log: " + e.message;
+          errorEl.style.display = "block";
+          return;
+        }
+        renderDayLog();
+      }
+
+      function renderDayLog() {
+        const ul = document.getElementById("dayLogList");
+        ul.innerHTML = "";
+        if (!currentShiftEvents.length) {
+          ul.innerHTML = `<li class="roster-empty">No events logged for this day yet</li>`;
+          return;
+        }
+        for (const ev of currentShiftEvents) {
+          const li = document.createElement("li");
+          const timeLabel = new Date(ev.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          li.innerHTML = `
+      <span><strong>${timeLabel}</strong> - ${EVENT_TYPE_LABELS[ev.eventType] || ev.eventType} - ${escapeHtml(ev.employeeName)}${ev.note ? ": " + escapeHtml(ev.note) : ""} <span class="time">(logged by ${escapeHtml(ev.author)})</span></span>
+      <button class="day-log-delete" data-id="${ev.id}">&times;</button>
+    `;
+          li.querySelector(".day-log-delete").addEventListener("click", async () => {
+            await fetch(`/api/shift-events/${ev.id}`, { method: "DELETE" });
+            loadShiftEvents(datePicker.value);
+          });
+          ul.appendChild(li);
+        }
+      }
+
+      // Reads the "HH:MM" <input type=time> value as the store's local time (per
+      // cfg.utcOffsetHours), not the viewer's browser timezone - same reasoning as
+      // worksIntoNightShift above.
+      function storeLocalTimeToISO(dateStr, timeStr, cfg) {
+        const [y, m, d] = dateStr.split("-").map(Number);
+        const [hh, mm] = timeStr.split(":").map(Number);
+        return new Date(Date.UTC(y, m - 1, d, hh - cfg.utcOffsetHours, mm)).toISOString();
       }
 
       // Rough "narrow skillset" signal: trainedRoleCount is how many role tags LifeLenz has
@@ -1088,14 +1176,47 @@
       document.getElementById("refreshBtn").addEventListener("click", () => {
         loadData(datePicker.value);
         loadRoster(datePicker.value);
+        loadShiftEvents(datePicker.value);
       });
       datePicker.addEventListener("change", () => {
         loadData(datePicker.value);
         loadRoster(datePicker.value);
+        loadShiftEvents(datePicker.value);
+      });
+
+      document.getElementById("logEventBtn").addEventListener("click", async () => {
+        const name = document.getElementById("eventNameInput").value.trim();
+        if (!name) {
+          alert("Name is required");
+          return;
+        }
+        await shiftConfigPromise;
+        const dateStr = datePicker.value;
+        const timeInput = document.getElementById("eventTimeInput").value;
+        const timeIso = timeInput
+          ? storeLocalTimeToISO(dateStr, timeInput, shiftConfig)
+          : new Date().toISOString();
+        const body = {
+          date: dateStr,
+          employeeName: name,
+          eventType: document.getElementById("eventTypeInput").value,
+          time: timeIso,
+          note: document.getElementById("eventNoteInput").value.trim(),
+          editorName: localStorage.getItem("lifelenzEditorName") || "",
+        };
+        await fetch("/api/shift-events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        document.getElementById("eventNameInput").value = "";
+        document.getElementById("eventNoteInput").value = "";
+        loadShiftEvents(dateStr);
       });
 
       loadData(datePicker.value);
       loadRoster(datePicker.value);
+      loadShiftEvents(datePicker.value);
       loadTeamNotes();
       setInterval(
         () => {
