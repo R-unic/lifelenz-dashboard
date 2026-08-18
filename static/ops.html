@@ -426,10 +426,20 @@ function renderCutSuggestions(effective) {
   const f = fieldMap(latest.data);
   const laborPctNow = Number(f.labour_percentage_of_sales || 0);
   const idealVariance = Number(f.total_hours_ideal_variation || 0);
-  const nightGoal = shiftConfig.goals.night;
-  const overstaffed = (nightGoal != null && laborPctNow > nightGoal) || idealVariance > 0.5;
+  // Whichever daypart is actually happening right now, not always "night" - this section
+  // used to only ever compare against the night goal, which quietly meant it only ever made
+  // sense to use in the evening even though the candidate pool below now covers the whole
+  // floor at any hour.
+  const currentShiftKey = classifyShift(localHour24(latest.startTime, shiftConfig.utcOffsetHours), shiftConfig);
+  const currentShiftName = (SHIFT_DEFS.find((d) => d.key === currentShiftKey) || {}).name || "current";
+  const currentGoal = shiftConfig.goals[currentShiftKey];
+  const overstaffed = (currentGoal != null && laborPctNow > currentGoal) || idealVariance > 0.5;
 
-  const nightPeople = effective.filter((s) => worksIntoNightShift(s, currentRosterDate, shiftConfig));
+  // Anyone actually on the floor right now, any daypart - not just people whose shift
+  // happens to extend into night. A mid-shift person who started at 11am is just as
+  // cuttable at 2pm as a closer is at 8pm; onClockNow already accounts for cuts/call-ins/
+  // covers/real punches logged today, so this reflects reality, not the published schedule.
+  const activePeople = effective.filter((s) => s.onClockNow);
 
   const now = new Date();
   // Store policy (not a legal requirement this app enforces) - a minor's break should
@@ -440,7 +450,7 @@ function renderCutSuggestions(effective) {
   const MINOR_BREAK_WINDOW_END_HOUR = 19.5;
 
   const minorAlerts = [];
-  for (const s of nightPeople) {
+  for (const s of activePeople) {
     const note = teamNoteFor(teamNotes, s.name);
     if (!note?.isMinor) continue;
     if (!s.onClockNow) continue;
@@ -477,14 +487,16 @@ function renderCutSuggestions(effective) {
     return;
   }
 
+  // Protects the floor manager of whichever shift they're actually matched to, not just
+  // night's - now that candidates span the whole day, a mid or morning floor manager needs
+  // the same protection a night one already had.
   const floorManagerNames = new Set(
-    nightPeople.filter((s) => matchFloorManagerShift(s, shiftConfig)?.shiftKey === "night").map((s) => s.name.toLowerCase()),
+    activePeople.filter((s) => matchFloorManagerShift(s, shiftConfig) != null).map((s) => s.name.toLowerCase()),
   );
 
-  // Actually on the floor right now - onClockNow already accounts for cuts/call-ins/covers
-  // logged today, and excluding onBreakNow means someone mid-break isn't suggested for a
-  // cut they've effectively already taken.
-  const stillOnShift = nightPeople.filter((s) => s.onClockNow && !s.onBreakNow);
+  // activePeople is already onClockNow-filtered; excluding onBreakNow here means someone
+  // mid-break isn't suggested for a cut they've effectively already taken.
+  const stillOnShift = activePeople.filter((s) => !s.onBreakNow);
 
   if (stillOnShift.length <= MIN_STAFF_FLOOR) {
     rows.push(
@@ -533,7 +545,7 @@ function renderCutSuggestions(effective) {
 
   if (top.length) {
     rows.push(
-      `<div class="glance-row skill-gap"><span class="icon">✂️</span><span>Labor is running ${nightGoal != null ? `above the ${nightGoal}% goal` : "above LifeLenz's ideal hours"} (${laborPctNow.toFixed(1)}% now, ${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}hrs vs ideal), ${stillOnShift.length} still on the clock. Suggested cuts, narrowest skillset first (ties broken by remaining hours):</span></div>`,
+      `<div class="glance-row skill-gap"><span class="icon">✂️</span><span>Labor is running ${currentGoal != null ? `above the ${currentShiftName} goal (${currentGoal}%)` : "above LifeLenz's ideal hours"} (${laborPctNow.toFixed(1)}% now, ${idealVariance >= 0 ? "+" : ""}${idealVariance.toFixed(1)}hrs vs ideal), ${stillOnShift.length} still on the clock. Suggested cuts, narrowest skillset first (ties broken by remaining hours):</span></div>`,
     );
     if (rushAhead) {
       rows.push(
